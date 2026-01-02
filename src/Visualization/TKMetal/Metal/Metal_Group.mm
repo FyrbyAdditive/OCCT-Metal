@@ -16,6 +16,7 @@
 #include <Metal_Context.hxx>
 #include <Metal_Workspace.hxx>
 #include <Metal_PrimitiveArray.hxx>
+#include <Metal_Text.hxx>
 #include <Aspect_InteriorStyle.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_Group, Graphic3d_Group)
@@ -141,9 +142,21 @@ void Metal_Group::AddPrimitiveArray(const Graphic3d_TypeOfPrimitiveArray theType
 void Metal_Group::AddText(const occ::handle<Graphic3d_Text>& theTextParams,
                           const bool theToEvalMinMax)
 {
-  // Text rendering not implemented yet
-  (void)theTextParams;
-  (void)theToEvalMinMax;
+  if (theTextParams.IsNull())
+  {
+    return;
+  }
+
+  // Create Metal text element
+  occ::handle<Metal_Text> aText = new Metal_Text(theTextParams);
+  myTexts.Append(aText);
+
+  // Update bounding box if requested
+  if (theToEvalMinMax)
+  {
+    const gp_Pnt& aPos = theTextParams->Position();
+    myBounds.Add(NCollection_Vec4<float>(float(aPos.X()), float(aPos.Y()), float(aPos.Z()), 1.0f));
+  }
 }
 
 // =======================================================================
@@ -274,6 +287,17 @@ void Metal_Group::Render(Metal_Workspace* theWorkspace) const
     theWorkspace->SetEdgeRendering(false);
     theWorkspace->ApplyPipelineState();
   }
+
+  // Render text elements
+  for (NCollection_List<occ::handle<Metal_Text>>::Iterator aTextIter(myTexts);
+       aTextIter.More(); aTextIter.Next())
+  {
+    const occ::handle<Metal_Text>& aText = aTextIter.Value();
+    if (!aText.IsNull())
+    {
+      aText->Render(theWorkspace);
+    }
+  }
 }
 
 // =======================================================================
@@ -282,6 +306,7 @@ void Metal_Group::Render(Metal_Workspace* theWorkspace) const
 // =======================================================================
 void Metal_Group::Release(Metal_Context* theCtx)
 {
+  // Release primitive arrays
   for (NCollection_List<Metal_PrimitiveArray*>::Iterator aPrimIter(myPrimitives);
        aPrimIter.More(); aPrimIter.Next())
   {
@@ -293,4 +318,16 @@ void Metal_Group::Release(Metal_Context* theCtx)
     }
   }
   myPrimitives.Clear();
+
+  // Release text elements
+  for (NCollection_List<occ::handle<Metal_Text>>::Iterator aTextIter(myTexts);
+       aTextIter.More(); aTextIter.Next())
+  {
+    occ::handle<Metal_Text>& aText = aTextIter.ChangeValue();
+    if (!aText.IsNull())
+    {
+      aText->Release(theCtx);
+    }
+  }
+  myTexts.Clear();
 }

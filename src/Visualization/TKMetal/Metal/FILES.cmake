@@ -30,6 +30,8 @@ set(OCCT_Metal_FILES
   Metal_ShaderManager.mm
   Metal_Structure.hxx
   Metal_Structure.mm
+  Metal_Text.hxx
+  Metal_Text.mm
   Metal_Texture.hxx
   Metal_Texture.mm
   Metal_UniformBuffer.hxx

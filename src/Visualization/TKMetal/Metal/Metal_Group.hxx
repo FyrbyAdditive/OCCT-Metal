@@ -23,6 +23,7 @@ class Metal_Structure;
 class Metal_Context;
 class Metal_Workspace;
 class Metal_PrimitiveArray;
+class Metal_Text;
 
 //! Implementation of low-level graphic group for Metal.
 class Metal_Group : public Graphic3d_Group
@@ -99,6 +100,7 @@ protected:
 
   occ::handle<Graphic3d_Aspects>          myAspect;      //!< group aspect
   NCollection_List<Metal_PrimitiveArray*> myPrimitives;  //!< list of primitive arrays
+  NCollection_List<occ::handle<Metal_Text>> myTexts;     //!< list of text elements
 };
 
 #endif // Metal_Group_HeaderFile
