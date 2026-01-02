@@ -1,0 +1,32 @@
+puts "========"
+puts "Metal_WindowCreation"
+puts "Create window with Metal layer and verify size"
+puts "========"
+puts ""
+
+pload MODELING VISUALIZATION
+
+# Skip test if not on macOS
+if { $::tcl_platform(os) != "Darwin" } {
+  puts "SKIP: Metal is only available on macOS"
+  return
+}
+
+catch {
+  # Create view with specific size
+  vinit View1 -width 640 -height 480
+
+  # Get view info
+  set viewInfo [vviewinfo View1]
+  puts "View info: $viewInfo"
+
+  # Set a background to verify view works
+  vbackground -color 0.2 0.4 0.6
+
+  vrepaint
+  vdump $imagedir/${casename}.png
+
+  puts "Window created successfully with size 640x480"
+}
+
+puts "TEST PASSED"

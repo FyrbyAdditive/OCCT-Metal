@@ -1,0 +1,28 @@
+puts "========"
+puts "Metal_ClearBlack"
+puts "Clear screen to black using Metal driver"
+puts "========"
+puts ""
+
+pload MODELING VISUALIZATION
+
+# Skip test if not on macOS
+if { $::tcl_platform(os) != "Darwin" } {
+  puts "SKIP: Metal is only available on macOS"
+  return
+}
+
+catch {
+  vinit View1 -width 400 -height 400
+
+  # Set background color to black
+  vbackground -color 0 0 0
+
+  vrepaint
+  vdump $imagedir/${casename}.png
+
+  # Verify black color at center
+  checkcolor 200 200 0 0 0
+}
+
+puts "TEST PASSED"

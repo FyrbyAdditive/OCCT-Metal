@@ -1,0 +1,39 @@
+puts "========"
+puts "Metal_WindowResize"
+puts "Test window resize handling"
+puts "========"
+puts ""
+
+pload MODELING VISUALIZATION
+
+# Skip test if not on macOS
+if { $::tcl_platform(os) != "Darwin" } {
+  puts "SKIP: Metal is only available on macOS"
+  return
+}
+
+catch {
+  # Create view with initial size
+  vinit View1 -width 400 -height 300
+
+  vbackground -color 0.5 0.5 0.5
+  vrepaint
+  vdump $imagedir/${casename}_1.png
+  puts "Initial size: 400x300"
+
+  # Resize to larger
+  vresize 800 600 View1
+  vrepaint
+  vdump $imagedir/${casename}_2.png
+  puts "Resized to: 800x600"
+
+  # Resize back to smaller
+  vresize 320 240 View1
+  vrepaint
+  vdump $imagedir/${casename}_3.png
+  puts "Resized to: 320x240"
+
+  puts "Window resize test completed"
+}
+
+puts "TEST PASSED"

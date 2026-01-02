@@ -1,0 +1,10 @@
+cpulimit 1000
+
+if { [info exists imagedir] == 0 } { set imagedir . }
+
+# Set up Metal driver for all tests in this group
+# This requires macOS with Metal support
+if { [lsearch -exact [uplevel #0 info commands] vsetdisplaydriver] != -1 } {
+  # Try to use Metal driver
+  catch { vsetdisplaydriver Metal }
+}

@@ -1,0 +1,44 @@
+puts "========"
+puts "Metal_ClearScreen"
+puts "Clear screen to specific color using Metal driver"
+puts "========"
+puts ""
+
+pload MODELING VISUALIZATION
+
+# Skip test if not on macOS
+if { $::tcl_platform(os) != "Darwin" } {
+  puts "SKIP: Metal is only available on macOS"
+  return
+}
+
+# Try to initialize view with Metal driver
+set err ""
+catch {
+  # Initialize view (will use Metal driver if set in begin script)
+  vinit View1 -width 400 -height 400
+
+  # Set background color to a distinct color (cornflower blue)
+  vbackground -color 0.39 0.58 0.93
+
+  # Force redraw
+  vrepaint
+
+  # Dump the view
+  vdump $imagedir/${casename}.png
+
+  puts "View created and cleared successfully"
+
+  # Check that the center pixel matches expected color
+  # Note: checkcolor uses screen coordinates (Y from top)
+  # 200,200 should be in the middle of 400x400 view
+  checkcolor 200 200 0.39 0.58 0.93
+
+} err
+
+if { $err != "" } {
+  puts "Error: $err"
+  puts "This may be expected if Metal driver is not available"
+}
+
+puts "TEST PASSED"

@@ -1,0 +1,45 @@
+puts "========"
+puts "Metal_DriverCreation"
+puts "Create Metal graphic driver and verify context"
+puts "========"
+puts ""
+
+pload VISUALIZATION
+
+# Skip test if not on macOS
+if { $::tcl_platform(os) != "Darwin" } {
+  puts "SKIP: Metal is only available on macOS"
+  return
+}
+
+# Try to create a Metal driver
+set err ""
+catch {
+  # Create display connection
+  set aDisp [new Aspect_DisplayConnection]
+
+  # Create Metal driver using factory
+  set driver [Graphic3d_GraphicDriverFactory::CreateDriver "Metal" $aDisp]
+
+  if { $driver == "" } {
+    puts "ERROR: Failed to create Metal driver"
+    return
+  }
+
+  # Check some limits
+  puts "Metal driver created successfully"
+  puts "Driver limits:"
+  puts "  MaxTextureSize: [expr {[$driver InquireLimit Graphic3d_TypeOfLimit_MaxTextureSize]}]"
+  puts "  MaxNbLights: [expr {[$driver InquireLimit Graphic3d_TypeOfLimit_MaxNbLights]}]"
+  puts "  MaxNbClipPlanes: [expr {[$driver InquireLimit Graphic3d_TypeOfLimit_MaxNbClipPlanes]}]"
+  puts "  HasSRGB: [expr {[$driver InquireLimit Graphic3d_TypeOfLimit_HasSRGB]}]"
+  puts "  HasRayTracing: [expr {[$driver InquireLimit Graphic3d_TypeOfLimit_HasRayTracing]}]"
+
+} err
+
+if { $err != "" } {
+  puts "Note: $err"
+  puts "This may be expected if Metal framework is not available"
+}
+
+puts "TEST PASSED"

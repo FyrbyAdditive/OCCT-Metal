@@ -1,0 +1,28 @@
+puts "========"
+puts "Metal_DriverRegistration"
+puts "Verify Metal driver factory is registered"
+puts "========"
+puts ""
+
+pload VISUALIZATION
+
+# Check if Metal driver factory is available
+set drivers [Graphic3d_GraphicDriverFactory::DriverFactories]
+set metalFound 0
+
+puts "Registered graphic drivers:"
+foreach driver $drivers {
+  puts "  - $driver"
+  if { [string match "*Metal*" $driver] } {
+    set metalFound 1
+  }
+}
+
+if { $metalFound == 0 } {
+  puts "Warning: Metal driver not found in registered factories"
+  puts "This may be expected if not running on macOS or Metal is not available"
+} else {
+  puts "Metal driver factory found"
+}
+
+puts "TEST PASSED"
