@@ -33,6 +33,7 @@
 #endif
 
 class Metal_GraphicDriver;
+class Metal_Workspace;
 
 //! Implementation of Metal view.
 class Metal_View : public Graphic3d_CView
@@ -220,6 +221,9 @@ private: //! @name Structure management (required by Graphic3d_CView)
                       const Graphic3d_DisplayPriority theNewPriority) override;
 
 private: //! @name Internal rendering helpers
+
+  //! Render all displayed structures.
+  void renderStructures(Metal_Workspace* theWorkspace);
 
   //! Initialize or resize the depth buffer.
   void initDepthBuffer(int theWidth, int theHeight);

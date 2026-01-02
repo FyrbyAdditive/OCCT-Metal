@@ -19,6 +19,9 @@
 // Now include OCCT headers
 #include <Metal_View.hxx>
 #include <Metal_GraphicDriver.hxx>
+#include <Metal_Structure.hxx>
+#include <Metal_Workspace.hxx>
+#include <Graphic3d_Structure.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_View, Graphic3d_CView)
 
@@ -239,9 +242,41 @@ void Metal_View::Redraw()
   aViewport.zfar = 1.0;
   [aRenderEncoder setViewport:aViewport];
 
-  // Draw a test triangle if pipeline is available
-  if (myContext->DefaultPipeline() != nil)
+  // Check if we have displayed structures to render
+  bool aHasStructures = (NumberOfDisplayedStructures() > 0);
+
+  if (aHasStructures && myContext->DefaultPipeline() != nil)
   {
+    // Create workspace for rendering
+    occ::handle<Metal_Workspace> aWorkspace = new Metal_Workspace(myContext.get(), this);
+    aWorkspace->SetEncoder(aRenderEncoder);
+
+    // Set up camera matrices
+    if (!myCamera.IsNull())
+    {
+      // Get matrices from camera
+      const NCollection_Mat4<float>& aModelView = myCamera->OrientationMatrixF();
+      const NCollection_Mat4<float>& aProjection = myCamera->ProjectionMatrixF();
+
+      aWorkspace->SetModelMatrix(aModelView);
+      aWorkspace->SetProjectionMatrix(aProjection);
+    }
+
+    // Apply pipeline state
+    aWorkspace->ApplyPipelineState();
+
+    // Set light sources
+    if (!myLights.IsNull())
+    {
+      aWorkspace->SetLightSources(myLights);
+    }
+
+    // Render all displayed structures
+    renderStructures(aWorkspace.get());
+  }
+  else if (myContext->DefaultPipeline() != nil)
+  {
+    // No structures to render, draw test triangle for visual feedback
     drawTestTriangle((__bridge void*)aRenderEncoder, aWidth, aHeight);
   }
 
@@ -702,6 +737,71 @@ void Metal_View::changePriority(const occ::handle<Graphic3d_CStructure>& theCStr
 }
 
 // =======================================================================
+// function : renderStructures
+// purpose  : Render all displayed structures
+// =======================================================================
+void Metal_View::renderStructures(Metal_Workspace* theWorkspace)
+{
+  if (theWorkspace == nullptr)
+  {
+    return;
+  }
+
+  // Get displayed structures from base class
+  NCollection_Map<occ::handle<Graphic3d_Structure>> aStructures;
+  DisplayedStructures(aStructures);
+
+  // Render each structure
+  for (NCollection_Map<occ::handle<Graphic3d_Structure>>::Iterator aStructIter(aStructures);
+       aStructIter.More(); aStructIter.Next())
+  {
+    const occ::handle<Graphic3d_Structure>& aStruct = aStructIter.Value();
+    if (aStruct.IsNull() || !aStruct->IsVisible())
+    {
+      continue;
+    }
+
+    // Get the underlying CStructure and cast to Metal_Structure
+    const occ::handle<Graphic3d_CStructure>& aCStruct = aStruct->CStructure();
+    if (aCStruct.IsNull())
+    {
+      continue;
+    }
+
+    Metal_Structure* aMetalStruct = dynamic_cast<Metal_Structure*>(aCStruct.get());
+    if (aMetalStruct != nullptr)
+    {
+      // Set up structure transformation
+      const NCollection_Mat4<float>& aStructTrsf = aMetalStruct->RenderTransformation();
+      NCollection_Mat4<float> aModelMatrix = theWorkspace->ModelMatrix();
+      aModelMatrix = aModelMatrix * aStructTrsf;
+      theWorkspace->SetModelMatrix(aModelMatrix);
+
+      // Check for highlighting
+      if (aStruct->IsHighlighted())
+      {
+        theWorkspace->SetHighlighting(true);
+        // Use highlight color if available
+        const occ::handle<Graphic3d_PresentationAttributes>& aHighStyle = aStruct->HighlightStyle();
+        if (!aHighStyle.IsNull())
+        {
+          theWorkspace->SetHighlightColor(aHighStyle->ColorRGBA());
+        }
+      }
+
+      // Apply uniforms before rendering
+      theWorkspace->ApplyUniforms();
+
+      // Render the structure
+      aMetalStruct->Render(theWorkspace);
+
+      // Reset highlighting
+      theWorkspace->SetHighlighting(false);
+    }
+  }
+}
+
+// =======================================================================
 // function : initDepthBuffer
 // purpose  : Initialize or resize the depth buffer
 // =======================================================================
@@ -737,6 +837,9 @@ void Metal_View::initDepthBuffer(int theWidth, int theHeight)
 // =======================================================================
 void Metal_View::drawTestTriangle(void* theEncoderPtr, int theWidth, int theHeight)
 {
+  (void)theWidth;
+  (void)theHeight;
+
   id<MTLRenderCommandEncoder> aRenderEncoder = (__bridge id<MTLRenderCommandEncoder>)theEncoderPtr;
   if (aRenderEncoder == nil || myContext.IsNull())
   {
