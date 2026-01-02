@@ -11,16 +11,20 @@
 // Alternatively, this file may be used under the terms of Open CASCADE
 // commercial license or contractual agreement.
 
-#include <Metal_Window.hxx>
-
-#import <Metal/Metal.h>
-#import <QuartzCore/CAMetalLayer.h>
+// Import Apple frameworks first to avoid Handle name conflicts with Carbon
+#import <TargetConditionals.h>
 
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
   #import <UIKit/UIKit.h>
 #else
   #import <Cocoa/Cocoa.h>
 #endif
+
+#import <Metal/Metal.h>
+#import <QuartzCore/CAMetalLayer.h>
+
+// Now include OCCT headers
+#include <Metal_Window.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_Window, Standard_Transient)
 

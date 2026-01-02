@@ -11,11 +11,14 @@
 // Alternatively, this file may be used under the terms of Open CASCADE
 // commercial license or contractual agreement.
 
-#include <Metal_View.hxx>
-#include <Metal_GraphicDriver.hxx>
-
+// Import Apple frameworks first to avoid Handle name conflicts with Carbon
+#import <TargetConditionals.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
+
+// Now include OCCT headers
+#include <Metal_View.hxx>
+#include <Metal_GraphicDriver.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_View, Graphic3d_CView)
 
@@ -180,10 +183,9 @@ void Metal_View::Redraw()
   aRenderPassDesc.colorAttachments[0].loadAction = MTLLoadActionClear;
   aRenderPassDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
 
-  // Get background color (convert from Quantity_Color to Metal clear color)
-  double aR = 0.0, aG = 0.0, aB = 0.0;
-  myBgColor.Values(aR, aG, aB, Quantity_TOC_sRGB);
-  aRenderPassDesc.colorAttachments[0].clearColor = MTLClearColorMake(aR, aG, aB, 1.0);
+  // Get background color (convert from Quantity_ColorRGBA to Metal clear color)
+  const Quantity_Color& aBgRgb = myBgColor.GetRGB();
+  aRenderPassDesc.colorAttachments[0].clearColor = MTLClearColorMake(aBgRgb.Red(), aBgRgb.Green(), aBgRgb.Blue(), 1.0);
 
   // Create render command encoder
   id<MTLRenderCommandEncoder> aRenderEncoder = [aCommandBuffer renderCommandEncoderWithDescriptor:aRenderPassDesc];
@@ -206,7 +208,7 @@ void Metal_View::Redraw()
   [aCommandBuffer presentDrawable:aDrawable];
 
   // Commit command buffer and signal frame completion
-  myContext->CommitCommandBuffer(aCommandBuffer);
+  myContext->Commit();
 
   myBackBufferRestored = true;
 }
@@ -572,4 +574,54 @@ void Metal_View::StatisticInformation(
     theDict.Add("ViewHeight", TCollection_AsciiString(myWindow->Height()));
     theDict.Add("ScaleFactor", TCollection_AsciiString(myWindow->ScaleFactor()));
   }
+}
+
+// =======================================================================
+// function : displayStructure
+// purpose  : Adds the structure to display lists of the view
+// =======================================================================
+void Metal_View::displayStructure(const occ::handle<Graphic3d_CStructure>& theStructure,
+                                  const Graphic3d_DisplayPriority thePriority)
+{
+  (void)theStructure;
+  (void)thePriority;
+  // Structure management will be implemented in later phases
+  myBackBufferRestored = false;
+}
+
+// =======================================================================
+// function : eraseStructure
+// purpose  : Erases the structure from display lists of the view
+// =======================================================================
+void Metal_View::eraseStructure(const occ::handle<Graphic3d_CStructure>& theStructure)
+{
+  (void)theStructure;
+  // Structure management will be implemented in later phases
+  myBackBufferRestored = false;
+}
+
+// =======================================================================
+// function : changeZLayer
+// purpose  : Change Z layer of a structure already presented in view
+// =======================================================================
+void Metal_View::changeZLayer(const occ::handle<Graphic3d_CStructure>& theCStructure,
+                              const Graphic3d_ZLayerId theNewLayerId)
+{
+  (void)theCStructure;
+  (void)theNewLayerId;
+  // Structure management will be implemented in later phases
+  myBackBufferRestored = false;
+}
+
+// =======================================================================
+// function : changePriority
+// purpose  : Changes the priority of a structure within its Z layer
+// =======================================================================
+void Metal_View::changePriority(const occ::handle<Graphic3d_CStructure>& theCStructure,
+                                const Graphic3d_DisplayPriority theNewPriority)
+{
+  (void)theCStructure;
+  (void)theNewPriority;
+  // Structure management will be implemented in later phases
+  myBackBufferRestored = false;
 }

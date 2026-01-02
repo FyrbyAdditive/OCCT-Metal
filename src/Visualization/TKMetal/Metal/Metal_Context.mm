@@ -11,12 +11,15 @@
 // Alternatively, this file may be used under the terms of Open CASCADE
 // commercial license or contractual agreement.
 
+// Import Apple frameworks first to avoid Handle name conflicts with Carbon
+#import <TargetConditionals.h>
+#import <Metal/Metal.h>
+#import <dispatch/dispatch.h>
+
+// Now include OCCT headers
 #include <Metal_Context.hxx>
 #include <Message.hxx>
 #include <Standard_Assert.hxx>
-
-#import <Metal/Metal.h>
-#import <dispatch/dispatch.h>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_Context, Standard_Transient)
 
@@ -39,7 +42,7 @@ Metal_Context::Metal_Context(const occ::handle<Metal_Caps>& theCaps)
   myCaps(theCaps),
   myMsgContext(Message::DefaultMessenger()),
   mySharedResources(new Metal_ResourcesMap()),
-  myUnusedResources(new NCollection_List<occ::handle<Metal_Resource>>()),
+  myUnusedResources(new Metal_ResourcesList()),
   myMaxTexDim(4096),
   myMaxBufferLength(256 * 1024 * 1024),
   myMaxColorAttachments(8),
@@ -402,7 +405,7 @@ void Metal_Context::ReleaseResource(const TCollection_AsciiString& theKey,
   if (!mySharedResources.IsNull())
   {
     occ::handle<Metal_Resource>* aResource = mySharedResources->ChangeSeek(theKey);
-    if (aResource != nullptr && aResource->GetRefCount() <= 2)
+    if (aResource != nullptr && !aResource->IsNull() && (*aResource)->GetRefCount() <= 2)
     {
       if (theToDelay)
       {

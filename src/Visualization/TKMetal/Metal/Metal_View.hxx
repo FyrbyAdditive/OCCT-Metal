@@ -14,7 +14,9 @@
 #ifndef Metal_View_HeaderFile
 #define Metal_View_HeaderFile
 
+#include <Graphic3d_CStructure.hxx>
 #include <Graphic3d_CView.hxx>
+#include <Graphic3d_DisplayPriority.hxx>
 #include <Graphic3d_GraduatedTrihedron.hxx>
 #include <Graphic3d_Layer.hxx>
 #include <Graphic3d_LightSet.hxx>
@@ -194,6 +196,23 @@ public: //! @name Diagnostics
   //! Fills in the dictionary with statistic performance info.
   Standard_EXPORT void StatisticInformation(
     NCollection_IndexedDataMap<TCollection_AsciiString, TCollection_AsciiString>& theDict) const override;
+
+private: //! @name Structure management (required by Graphic3d_CView)
+
+  //! Adds the structure to display lists of the view.
+  void displayStructure(const occ::handle<Graphic3d_CStructure>& theStructure,
+                        const Graphic3d_DisplayPriority thePriority) override;
+
+  //! Erases the structure from display lists of the view.
+  void eraseStructure(const occ::handle<Graphic3d_CStructure>& theStructure) override;
+
+  //! Change Z layer of a structure already presented in view.
+  void changeZLayer(const occ::handle<Graphic3d_CStructure>& theCStructure,
+                    const Graphic3d_ZLayerId theNewLayerId) override;
+
+  //! Changes the priority of a structure within its Z layer.
+  void changePriority(const occ::handle<Graphic3d_CStructure>& theCStructure,
+                      const Graphic3d_DisplayPriority theNewPriority) override;
 
 protected:
 

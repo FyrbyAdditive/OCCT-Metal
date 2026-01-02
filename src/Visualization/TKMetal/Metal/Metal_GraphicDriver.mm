@@ -61,17 +61,17 @@ void Metal_GraphicDriver::ReleaseContext()
   }
   myMapOfView.Clear();
 
-  // Release structures
-  for (NCollection_DataMap<int, Metal_Structure*>::Iterator aStructIter(myMapOfStructure);
-       aStructIter.More(); aStructIter.Next())
-  {
-    Metal_Structure* aStruct = aStructIter.Value();
-    if (aStruct != nullptr)
-    {
-      aStruct->Release(mySharedContext.get());
-    }
-  }
-  myMapOfStructure.Clear();
+  // Release structures (Phase 1 does not implement structures)
+  // for (NCollection_DataMap<int, Metal_Structure*>::Iterator aStructIter(myMapOfStructure);
+  //      aStructIter.More(); aStructIter.Next())
+  // {
+  //   Metal_Structure* aStruct = aStructIter.Value();
+  //   if (aStruct != nullptr)
+  //   {
+  //     aStruct->Release(mySharedContext.get());
+  //   }
+  // }
+  // myMapOfStructure.Clear();
 
   // Release context
   if (!mySharedContext.IsNull())
@@ -131,11 +131,11 @@ int Metal_GraphicDriver::InquireLimit(const Graphic3d_TypeOfLimit theType) const
       return 0; // Not implemented yet
     case Graphic3d_TypeOfLimit_HasSRGB:
       return 1; // Metal always supports sRGB
+    case Graphic3d_TypeOfLimit_HasPBR:
+      return 1; // Metal supports PBR
     case Graphic3d_TypeOfLimit_HasBlendedOit:
       return 1;
     case Graphic3d_TypeOfLimit_HasBlendedOitMsaa:
-      return 1;
-    case Graphic3d_TypeOfLimit_HasDepthPeelingOit:
       return 1;
     case Graphic3d_TypeOfLimit_HasFlatShading:
       return 1;
@@ -258,7 +258,7 @@ bool Metal_GraphicDriver::ViewExists(const occ::handle<Aspect_Window>& theWindow
   {
     const occ::handle<Metal_View>& aView = aViewIter.Value();
     if (!aView->Window().IsNull()
-     && aView->Window()->PlatformWindow() == theWindow)
+     && aView->Window() == theWindow)
     {
       theView = aView;
       return true;

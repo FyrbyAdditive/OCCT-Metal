@@ -27,6 +27,7 @@
 #include <TCollection_AsciiString.hxx>
 
 #ifdef __OBJC__
+#import <dispatch/dispatch.h>
 @protocol MTLDevice;
 @protocol MTLCommandQueue;
 @protocol MTLCommandBuffer;
@@ -49,6 +50,7 @@ class Metal_Context : public Standard_Transient
 public:
 
   typedef NCollection_Shared<NCollection_DataMap<TCollection_AsciiString, occ::handle<Metal_Resource>>> Metal_ResourcesMap;
+  typedef NCollection_Shared<NCollection_List<occ::handle<Metal_Resource>>> Metal_ResourcesList;
 
 public:
 
@@ -235,7 +237,7 @@ private:
   occ::handle<Metal_Caps>      myCaps;            //!< Capabilities configuration
   occ::handle<Message_Messenger> myMsgContext;   //!< Messenger for logging
   occ::handle<Metal_ResourcesMap> mySharedResources; //!< Shared resources map
-  occ::handle<NCollection_List<occ::handle<Metal_Resource>>> myUnusedResources; //!< Delayed release queue
+  occ::handle<Metal_ResourcesList> myUnusedResources; //!< Delayed release queue
 
   TCollection_AsciiString myDeviceName;           //!< Device name
   int                     myMaxTexDim;            //!< Max texture dimension
