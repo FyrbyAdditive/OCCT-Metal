@@ -28,6 +28,10 @@
 #include <NCollection_List.hxx>
 #include <Quantity_Color.hxx>
 
+#ifdef __OBJC__
+@protocol MTLTexture;
+#endif
+
 class Metal_GraphicDriver;
 
 //! Implementation of Metal view.
@@ -215,6 +219,14 @@ private: //! @name Structure management (required by Graphic3d_CView)
   void changePriority(const occ::handle<Graphic3d_CStructure>& theCStructure,
                       const Graphic3d_DisplayPriority theNewPriority) override;
 
+private: //! @name Internal rendering helpers
+
+  //! Initialize or resize the depth buffer.
+  void initDepthBuffer(int theWidth, int theHeight);
+
+  //! Draw a test triangle to verify rendering pipeline.
+  void drawTestTriangle(void* theEncoder, int theWidth, int theHeight);
+
 protected:
 
   const Metal_GraphicDriver*        myDriver;          //!< Graphic driver
@@ -245,6 +257,15 @@ protected:
   bool                              myBackBufferRestored; //!< Back buffer restored flag
   bool                              myToDrawImmediate;    //!< Draw immediate structures flag
   int                               myFrameCounter;       //!< Frame counter
+
+  // Depth buffer
+#ifdef __OBJC__
+  id<MTLTexture>                    myDepthTexture;       //!< Depth texture for rendering
+#else
+  void*                             myDepthTexture;       //!< Depth texture (opaque)
+#endif
+  int                               myDepthWidth;         //!< Depth texture width
+  int                               myDepthHeight;        //!< Depth texture height
 };
 
 #endif // Metal_View_HeaderFile

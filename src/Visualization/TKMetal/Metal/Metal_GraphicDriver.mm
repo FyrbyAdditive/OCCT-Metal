@@ -91,7 +91,18 @@ bool Metal_GraphicDriver::InitContext()
   ReleaseContext();
 
   mySharedContext = new Metal_Context(myCaps);
-  return mySharedContext->Init(myCaps->preferLowPowerGPU);
+  if (!mySharedContext->Init(myCaps->preferLowPowerGPU))
+  {
+    return false;
+  }
+
+  // Initialize default shaders for basic rendering
+  if (!mySharedContext->InitDefaultShaders())
+  {
+    // Not fatal - shaders will be created on demand
+  }
+
+  return true;
 }
 
 // =======================================================================

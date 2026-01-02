@@ -41,7 +41,10 @@ Metal_View::Metal_View(const occ::handle<Graphic3d_StructureManager>& theMgr,
   myZLayerMax(0),
   myBackBufferRestored(false),
   myToDrawImmediate(false),
-  myFrameCounter(0)
+  myFrameCounter(0),
+  myDepthTexture(nil),
+  myDepthWidth(0),
+  myDepthHeight(0)
 {
   myLights = new Graphic3d_LightSet();
   myClipPlanes = new Graphic3d_SequenceOfHClipPlane();
@@ -63,6 +66,8 @@ Metal_View::~Metal_View()
 // =======================================================================
 void Metal_View::ReleaseGlResources(Metal_Context* theCtx)
 {
+  (void)theCtx;
+
   // Release framebuffers
   if (!myFBO.IsNull())
   {
@@ -74,6 +79,11 @@ void Metal_View::ReleaseGlResources(Metal_Context* theCtx)
     myMainFBO->Release(theCtx);
     myMainFBO.Nullify();
   }
+
+  // Release depth texture
+  myDepthTexture = nil;
+  myDepthWidth = 0;
+  myDepthHeight = 0;
 
   // Release window
   myWindow.Nullify();
@@ -186,6 +196,11 @@ void Metal_View::Redraw()
     return;
   }
 
+  // Ensure we have a depth buffer
+  int aWidth = (int)aDrawable.texture.width;
+  int aHeight = (int)aDrawable.texture.height;
+  initDepthBuffer(aWidth, aHeight);
+
   // Create render pass descriptor
   MTLRenderPassDescriptor* aRenderPassDesc = [MTLRenderPassDescriptor renderPassDescriptor];
 
@@ -198,6 +213,15 @@ void Metal_View::Redraw()
   const Quantity_Color& aBgRgb = myBgColor.GetRGB();
   aRenderPassDesc.colorAttachments[0].clearColor = MTLClearColorMake(aBgRgb.Red(), aBgRgb.Green(), aBgRgb.Blue(), 1.0);
 
+  // Configure depth attachment
+  if (myDepthTexture != nil)
+  {
+    aRenderPassDesc.depthAttachment.texture = myDepthTexture;
+    aRenderPassDesc.depthAttachment.loadAction = MTLLoadActionClear;
+    aRenderPassDesc.depthAttachment.storeAction = MTLStoreActionDontCare;
+    aRenderPassDesc.depthAttachment.clearDepth = 1.0;
+  }
+
   // Create render command encoder
   id<MTLRenderCommandEncoder> aRenderEncoder = [aCommandBuffer renderCommandEncoderWithDescriptor:aRenderPassDesc];
   if (aRenderEncoder == nil)
@@ -205,12 +229,21 @@ void Metal_View::Redraw()
     return;
   }
 
-  // For Phase 1, we just clear the screen
-  // Future phases will add actual rendering here:
-  // - Set viewport
-  // - Bind pipeline state
-  // - Draw structures
-  // - Draw immediate mode structures
+  // Set viewport
+  MTLViewport aViewport;
+  aViewport.originX = 0.0;
+  aViewport.originY = 0.0;
+  aViewport.width = aWidth;
+  aViewport.height = aHeight;
+  aViewport.znear = 0.0;
+  aViewport.zfar = 1.0;
+  [aRenderEncoder setViewport:aViewport];
+
+  // Draw a test triangle if pipeline is available
+  if (myContext->DefaultPipeline() != nil)
+  {
+    drawTestTriangle((__bridge void*)aRenderEncoder, aWidth, aHeight);
+  }
 
   // End encoding
   [aRenderEncoder endEncoding];
@@ -666,4 +699,121 @@ void Metal_View::changePriority(const occ::handle<Graphic3d_CStructure>& theCStr
   (void)theNewPriority;
   // Structure management will be implemented in later phases
   myBackBufferRestored = false;
+}
+
+// =======================================================================
+// function : initDepthBuffer
+// purpose  : Initialize or resize the depth buffer
+// =======================================================================
+void Metal_View::initDepthBuffer(int theWidth, int theHeight)
+{
+  if (myContext.IsNull() || myContext->Device() == nil)
+  {
+    return;
+  }
+
+  // Check if we need to resize
+  if (myDepthTexture != nil && myDepthWidth == theWidth && myDepthHeight == theHeight)
+  {
+    return;
+  }
+
+  // Create new depth texture
+  MTLTextureDescriptor* aDepthDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+                                                                                        width:theWidth
+                                                                                       height:theHeight
+                                                                                    mipmapped:NO];
+  aDepthDesc.storageMode = MTLStorageModePrivate;
+  aDepthDesc.usage = MTLTextureUsageRenderTarget;
+
+  myDepthTexture = [myContext->Device() newTextureWithDescriptor:aDepthDesc];
+  myDepthWidth = theWidth;
+  myDepthHeight = theHeight;
+}
+
+// =======================================================================
+// function : drawTestTriangle
+// purpose  : Draw a test triangle to verify rendering pipeline
+// =======================================================================
+void Metal_View::drawTestTriangle(void* theEncoderPtr, int theWidth, int theHeight)
+{
+  id<MTLRenderCommandEncoder> aRenderEncoder = (__bridge id<MTLRenderCommandEncoder>)theEncoderPtr;
+  if (aRenderEncoder == nil || myContext.IsNull())
+  {
+    return;
+  }
+
+  id<MTLRenderPipelineState> aPipeline = myContext->DefaultPipeline();
+  id<MTLDepthStencilState> aDepthState = myContext->DefaultDepthStencilState();
+
+  if (aPipeline == nil)
+  {
+    return;
+  }
+
+  // Set pipeline state
+  [aRenderEncoder setRenderPipelineState:aPipeline];
+  if (aDepthState != nil)
+  {
+    [aRenderEncoder setDepthStencilState:aDepthState];
+  }
+
+  // Create a simple colored triangle in normalized device coordinates
+  // Triangle vertices in NDC space (-1 to 1)
+  float aTriangleVertices[] = {
+    // Vertex 1: top center
+     0.0f,  0.5f, 0.5f,
+    // Vertex 2: bottom left
+    -0.5f, -0.5f, 0.5f,
+    // Vertex 3: bottom right
+     0.5f, -0.5f, 0.5f
+  };
+
+  // Uniform data: identity matrices + red color
+  struct Uniforms {
+    float modelViewMatrix[16];
+    float projectionMatrix[16];
+    float color[4];
+  } aUniforms;
+
+  // Identity matrix for modelView
+  memset(aUniforms.modelViewMatrix, 0, sizeof(aUniforms.modelViewMatrix));
+  aUniforms.modelViewMatrix[0] = 1.0f;
+  aUniforms.modelViewMatrix[5] = 1.0f;
+  aUniforms.modelViewMatrix[10] = 1.0f;
+  aUniforms.modelViewMatrix[15] = 1.0f;
+
+  // Identity matrix for projection
+  memset(aUniforms.projectionMatrix, 0, sizeof(aUniforms.projectionMatrix));
+  aUniforms.projectionMatrix[0] = 1.0f;
+  aUniforms.projectionMatrix[5] = 1.0f;
+  aUniforms.projectionMatrix[10] = 1.0f;
+  aUniforms.projectionMatrix[15] = 1.0f;
+
+  // Animated color based on frame counter
+  float t = (myFrameCounter % 360) / 360.0f;
+  aUniforms.color[0] = 0.5f + 0.5f * sinf(t * 6.28f);          // Red
+  aUniforms.color[1] = 0.5f + 0.5f * sinf(t * 6.28f + 2.09f);  // Green
+  aUniforms.color[2] = 0.5f + 0.5f * sinf(t * 6.28f + 4.18f);  // Blue
+  aUniforms.color[3] = 1.0f;
+
+  // Pass vertex data
+  [aRenderEncoder setVertexBytes:aTriangleVertices
+                          length:sizeof(aTriangleVertices)
+                         atIndex:0];
+
+  // Pass uniform data to vertex shader
+  [aRenderEncoder setVertexBytes:&aUniforms
+                          length:sizeof(aUniforms)
+                         atIndex:1];
+
+  // Pass uniform data to fragment shader
+  [aRenderEncoder setFragmentBytes:&aUniforms
+                            length:sizeof(aUniforms)
+                           atIndex:0];
+
+  // Draw the triangle
+  [aRenderEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+                     vertexStart:0
+                     vertexCount:3];
 }
