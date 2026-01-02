@@ -125,6 +125,84 @@ int Metal_Texture::BytesPerPixel(int theMetalFormat)
 }
 
 // =======================================================================
+// function : ToMetalCompressedFormat
+// purpose  : Convert Image_CompressedFormat to Metal pixel format
+// =======================================================================
+int Metal_Texture::ToMetalCompressedFormat(Image_CompressedFormat theFormat, bool theSRGB)
+{
+  switch (theFormat)
+  {
+    case Image_CompressedFormat_RGB_S3TC_DXT1:
+      return theSRGB ? MTLPixelFormatBC1_RGBA_sRGB : MTLPixelFormatBC1_RGBA;
+    case Image_CompressedFormat_RGBA_S3TC_DXT1:
+      return theSRGB ? MTLPixelFormatBC1_RGBA_sRGB : MTLPixelFormatBC1_RGBA;
+    case Image_CompressedFormat_RGBA_S3TC_DXT3:
+      return theSRGB ? MTLPixelFormatBC2_RGBA_sRGB : MTLPixelFormatBC2_RGBA;
+    case Image_CompressedFormat_RGBA_S3TC_DXT5:
+      return theSRGB ? MTLPixelFormatBC3_RGBA_sRGB : MTLPixelFormatBC3_RGBA;
+    default:
+      return 0;
+  }
+}
+
+// =======================================================================
+// function : CompressedBlockSize
+// purpose  : Return block size for compressed format
+// =======================================================================
+int Metal_Texture::CompressedBlockSize(int theMetalFormat)
+{
+  switch (theMetalFormat)
+  {
+    case MTLPixelFormatBC1_RGBA:
+    case MTLPixelFormatBC1_RGBA_sRGB:
+    case MTLPixelFormatBC2_RGBA:
+    case MTLPixelFormatBC2_RGBA_sRGB:
+    case MTLPixelFormatBC3_RGBA:
+    case MTLPixelFormatBC3_RGBA_sRGB:
+    case MTLPixelFormatBC4_RUnorm:
+    case MTLPixelFormatBC4_RSnorm:
+    case MTLPixelFormatBC5_RGUnorm:
+    case MTLPixelFormatBC5_RGSnorm:
+    case MTLPixelFormatBC6H_RGBFloat:
+    case MTLPixelFormatBC6H_RGBUfloat:
+    case MTLPixelFormatBC7_RGBAUnorm:
+    case MTLPixelFormatBC7_RGBAUnorm_sRGB:
+      return 4; // 4x4 block
+    default:
+      return 0; // Not compressed
+  }
+}
+
+// =======================================================================
+// function : CompressedBytesPerBlock
+// purpose  : Return bytes per block for compressed format
+// =======================================================================
+int Metal_Texture::CompressedBytesPerBlock(int theMetalFormat)
+{
+  switch (theMetalFormat)
+  {
+    case MTLPixelFormatBC1_RGBA:
+    case MTLPixelFormatBC1_RGBA_sRGB:
+    case MTLPixelFormatBC4_RUnorm:
+    case MTLPixelFormatBC4_RSnorm:
+      return 8;  // 8 bytes per 4x4 block
+    case MTLPixelFormatBC2_RGBA:
+    case MTLPixelFormatBC2_RGBA_sRGB:
+    case MTLPixelFormatBC3_RGBA:
+    case MTLPixelFormatBC3_RGBA_sRGB:
+    case MTLPixelFormatBC5_RGUnorm:
+    case MTLPixelFormatBC5_RGSnorm:
+    case MTLPixelFormatBC6H_RGBFloat:
+    case MTLPixelFormatBC6H_RGBUfloat:
+    case MTLPixelFormatBC7_RGBAUnorm:
+    case MTLPixelFormatBC7_RGBAUnorm_sRGB:
+      return 16; // 16 bytes per 4x4 block
+    default:
+      return 0;
+  }
+}
+
+// =======================================================================
 // function : Create2D (from image)
 // purpose  : Create 2D texture from image
 // =======================================================================
@@ -478,4 +556,207 @@ void Metal_Texture::Release(Metal_Context* theCtx)
   myMipLevels = 1;
   myArrayLayers = 1;
   myEstimatedSize = 0;
+}
+
+// =======================================================================
+// function : Create3D
+// purpose  : Create 3D texture
+// =======================================================================
+bool Metal_Texture::Create3D(Metal_Context* theCtx,
+                             int theWidth,
+                             int theHeight,
+                             int theDepth,
+                             int theFormat,
+                             int theMipLevels)
+{
+  Release(theCtx);
+
+  if (theCtx == nullptr || !theCtx->IsValid())
+  {
+    return false;
+  }
+
+  if (theWidth <= 0 || theHeight <= 0 || theDepth <= 0)
+  {
+    return false;
+  }
+
+  myWidth = theWidth;
+  myHeight = theHeight;
+  myDepth = theDepth;
+  myTextureType = Metal_TextureType_3D;
+  myMipLevels = std::max(1, theMipLevels);
+  myArrayLayers = 1;
+  myPixelFormat = theFormat;
+
+  MTLTextureDescriptor* aDesc = [[MTLTextureDescriptor alloc] init];
+  aDesc.textureType = MTLTextureType3D;
+  aDesc.pixelFormat = (MTLPixelFormat)myPixelFormat;
+  aDesc.width = myWidth;
+  aDesc.height = myHeight;
+  aDesc.depth = myDepth;
+  aDesc.mipmapLevelCount = myMipLevels;
+  aDesc.arrayLength = 1;
+  aDesc.sampleCount = 1;
+  aDesc.storageMode = MTLStorageModeShared;
+  aDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+
+  id<MTLDevice> aDevice = theCtx->Device();
+  myTexture = [aDevice newTextureWithDescriptor:aDesc];
+
+  myEstimatedSize = size_t(myWidth) * size_t(myHeight) * size_t(myDepth) * BytesPerPixel(myPixelFormat);
+
+  return myTexture != nil;
+}
+
+// =======================================================================
+// function : Create2DArray
+// purpose  : Create 2D texture array
+// =======================================================================
+bool Metal_Texture::Create2DArray(Metal_Context* theCtx,
+                                  int theWidth,
+                                  int theHeight,
+                                  int theLayers,
+                                  int theFormat,
+                                  int theMipLevels)
+{
+  Release(theCtx);
+
+  if (theCtx == nullptr || !theCtx->IsValid())
+  {
+    return false;
+  }
+
+  if (theWidth <= 0 || theHeight <= 0 || theLayers <= 0)
+  {
+    return false;
+  }
+
+  myWidth = theWidth;
+  myHeight = theHeight;
+  myDepth = 1;
+  myTextureType = Metal_TextureType_2DArray;
+  myMipLevels = std::max(1, theMipLevels);
+  myArrayLayers = theLayers;
+  myPixelFormat = theFormat;
+
+  MTLTextureDescriptor* aDesc = [[MTLTextureDescriptor alloc] init];
+  aDesc.textureType = MTLTextureType2DArray;
+  aDesc.pixelFormat = (MTLPixelFormat)myPixelFormat;
+  aDesc.width = myWidth;
+  aDesc.height = myHeight;
+  aDesc.depth = 1;
+  aDesc.mipmapLevelCount = myMipLevels;
+  aDesc.arrayLength = myArrayLayers;
+  aDesc.sampleCount = 1;
+  aDesc.storageMode = MTLStorageModeShared;
+  aDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
+
+  id<MTLDevice> aDevice = theCtx->Device();
+  myTexture = [aDevice newTextureWithDescriptor:aDesc];
+
+  myEstimatedSize = size_t(myWidth) * size_t(myHeight) * size_t(myArrayLayers) * BytesPerPixel(myPixelFormat);
+
+  return myTexture != nil;
+}
+
+// =======================================================================
+// function : CreateCompressed
+// purpose  : Create texture from compressed image data
+// =======================================================================
+bool Metal_Texture::CreateCompressed(Metal_Context* theCtx,
+                                     const Image_CompressedPixMap& theImage)
+{
+  Release(theCtx);
+
+  if (theCtx == nullptr || !theCtx->IsValid())
+  {
+    return false;
+  }
+
+  if (theImage.IsEmpty())
+  {
+    return false;
+  }
+
+  myPixelFormat = ToMetalCompressedFormat(theImage.CompressedFormat(), false);
+  if (myPixelFormat == 0)
+  {
+    // Unsupported compressed format
+    return false;
+  }
+
+  myWidth = (int)theImage.SizeX();
+  myHeight = (int)theImage.SizeY();
+  myDepth = 1;
+  myTextureType = Metal_TextureType_2D;
+  myMipLevels = (int)theImage.MipMaps().Size() + 1; // Base level + mipmaps
+  myArrayLayers = 1;
+
+  MTLTextureDescriptor* aDesc = [[MTLTextureDescriptor alloc] init];
+  aDesc.textureType = MTLTextureType2D;
+  aDesc.pixelFormat = (MTLPixelFormat)myPixelFormat;
+  aDesc.width = myWidth;
+  aDesc.height = myHeight;
+  aDesc.depth = 1;
+  aDesc.mipmapLevelCount = myMipLevels;
+  aDesc.arrayLength = 1;
+  aDesc.sampleCount = 1;
+  aDesc.storageMode = MTLStorageModeShared;
+  aDesc.usage = MTLTextureUsageShaderRead;
+
+  id<MTLDevice> aDevice = theCtx->Device();
+  myTexture = [aDevice newTextureWithDescriptor:aDesc];
+  if (myTexture == nil)
+  {
+    return false;
+  }
+
+  // Upload base level
+  int aBlockSize = CompressedBlockSize(myPixelFormat);
+  int aBytesPerBlock = CompressedBytesPerBlock(myPixelFormat);
+  int aBlocksWide = (myWidth + aBlockSize - 1) / aBlockSize;
+  int aBytesPerRow = aBlocksWide * aBytesPerBlock;
+
+  MTLRegion aRegion = MTLRegionMake2D(0, 0, myWidth, myHeight);
+  [myTexture replaceRegion:aRegion
+               mipmapLevel:0
+                 withBytes:theImage.FaceData(0)->Data()
+               bytesPerRow:aBytesPerRow];
+
+  // Upload mipmap levels
+  const NCollection_Vector<occ::handle<Image_CompressedPixMap>>& aMipMaps = theImage.MipMaps();
+  for (int aLevel = 0; aLevel < aMipMaps.Size(); ++aLevel)
+  {
+    const occ::handle<Image_CompressedPixMap>& aMip = aMipMaps.Value(aLevel);
+    if (aMip.IsNull() || aMip->IsEmpty())
+    {
+      continue;
+    }
+
+    int aMipWidth = (int)aMip->SizeX();
+    int aMipHeight = (int)aMip->SizeY();
+    int aMipBlocksWide = (aMipWidth + aBlockSize - 1) / aBlockSize;
+    int aMipBytesPerRow = aMipBlocksWide * aBytesPerBlock;
+
+    MTLRegion aMipRegion = MTLRegionMake2D(0, 0, aMipWidth, aMipHeight);
+    [myTexture replaceRegion:aMipRegion
+                 mipmapLevel:aLevel + 1
+                   withBytes:aMip->FaceData(0)->Data()
+                 bytesPerRow:aMipBytesPerRow];
+  }
+
+  // Estimate size (approximate for compressed textures)
+  myEstimatedSize = 0;
+  int w = myWidth, h = myHeight;
+  for (int i = 0; i < myMipLevels; ++i)
+  {
+    int blocksW = (w + aBlockSize - 1) / aBlockSize;
+    int blocksH = (h + aBlockSize - 1) / aBlockSize;
+    myEstimatedSize += blocksW * blocksH * aBytesPerBlock;
+    w = std::max(1, w / 2);
+    h = std::max(1, h / 2);
+  }
+
+  return true;
 }

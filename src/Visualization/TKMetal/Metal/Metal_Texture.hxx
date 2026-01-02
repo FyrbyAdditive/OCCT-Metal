@@ -17,9 +17,12 @@
 #include <Metal_Resource.hxx>
 #include <Graphic3d_TextureUnit.hxx>
 #include <Image_PixMap.hxx>
+#include <Image_CompressedFormat.hxx>
+#include <Image_CompressedPixMap.hxx>
 
 #ifdef __OBJC__
 @protocol MTLTexture;
+@protocol MTLSamplerState;
 #endif
 
 class Metal_Context;
@@ -104,6 +107,43 @@ public:
                                   const Image_PixMap* theFaces[6],
                                   bool theGenerateMips = true);
 
+  //! Create 3D texture with specified dimensions.
+  //! @param theCtx Metal context
+  //! @param theWidth texture width
+  //! @param theHeight texture height
+  //! @param theDepth texture depth
+  //! @param theFormat pixel format (Metal pixel format value)
+  //! @param theMipLevels number of mip levels
+  //! @return true on success
+  Standard_EXPORT bool Create3D(Metal_Context* theCtx,
+                                int theWidth,
+                                int theHeight,
+                                int theDepth,
+                                int theFormat,
+                                int theMipLevels = 1);
+
+  //! Create 2D texture array.
+  //! @param theCtx Metal context
+  //! @param theWidth texture width
+  //! @param theHeight texture height
+  //! @param theLayers number of array layers
+  //! @param theFormat pixel format (Metal pixel format value)
+  //! @param theMipLevels number of mip levels
+  //! @return true on success
+  Standard_EXPORT bool Create2DArray(Metal_Context* theCtx,
+                                     int theWidth,
+                                     int theHeight,
+                                     int theLayers,
+                                     int theFormat,
+                                     int theMipLevels = 1);
+
+  //! Create texture from compressed image data.
+  //! @param theCtx Metal context
+  //! @param theImage compressed image data
+  //! @return true on success
+  Standard_EXPORT bool CreateCompressed(Metal_Context* theCtx,
+                                        const Image_CompressedPixMap& theImage);
+
   //! Upload image data to existing texture.
   //! @param theCtx Metal context
   //! @param theImage source image
@@ -148,8 +188,18 @@ public:
   //! @return Metal pixel format value, or 0 if unsupported
   Standard_EXPORT static int ToMetalPixelFormat(Image_Format theFormat, bool theSRGB = false);
 
+  //! Convert Image_CompressedFormat to Metal pixel format.
+  //! @return Metal pixel format value, or 0 if unsupported
+  Standard_EXPORT static int ToMetalCompressedFormat(Image_CompressedFormat theFormat, bool theSRGB = false);
+
   //! Return bytes per pixel for Metal pixel format.
   Standard_EXPORT static int BytesPerPixel(int theMetalFormat);
+
+  //! Return block size for compressed format (4 for BC/DXT, 0 for uncompressed).
+  Standard_EXPORT static int CompressedBlockSize(int theMetalFormat);
+
+  //! Return bytes per block for compressed format.
+  Standard_EXPORT static int CompressedBytesPerBlock(int theMetalFormat);
 
 protected:
 
