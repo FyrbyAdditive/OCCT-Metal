@@ -36,6 +36,7 @@ Metal_Workspace::Metal_Workspace(Metal_Context* theCtx, Metal_View* theView)
   myEdgeColor(0.0f, 0.0f, 0.0f, 1.0f),
   myIsEdgeRendering(false),
   myIsWireframeMode(false),
+  myIsTransparentMode(false),
   myShaderManager(nullptr),
   myClipping(nullptr),
   myShadingModel(Graphic3d_TypeOfShadingModel_Phong)
@@ -333,4 +334,50 @@ void Metal_Workspace::ApplyEdgePipelineState()
 
   // Disable culling for edge rendering (edges should be visible from both sides)
   [myEncoder setCullMode:MTLCullModeNone];
+}
+
+// =======================================================================
+// function : ApplyBlendingPipelineState
+// purpose  : Apply pipeline state for transparent objects
+// =======================================================================
+void Metal_Workspace::ApplyBlendingPipelineState()
+{
+  if (myEncoder == nil || myContext == nullptr)
+  {
+    return;
+  }
+
+  // Use blending pipeline for transparent objects
+  id<MTLRenderPipelineState> aPipeline = myContext->BlendingPipeline();
+  if (aPipeline != nil && aPipeline != myCurrentPipeline)
+  {
+    [myEncoder setRenderPipelineState:aPipeline];
+    myCurrentPipeline = aPipeline;
+  }
+
+  // Use transparent depth state (depth test but no write)
+  ApplyTransparentDepthState();
+
+  // Back-face culling is typically kept for transparent objects
+  [myEncoder setCullMode:MTLCullModeBack];
+}
+
+// =======================================================================
+// function : ApplyTransparentDepthState
+// purpose  : Apply depth-stencil state for transparent objects
+// =======================================================================
+void Metal_Workspace::ApplyTransparentDepthState()
+{
+  if (myEncoder == nil || myContext == nullptr)
+  {
+    return;
+  }
+
+  // Use depth state that tests but doesn't write (for correct transparency)
+  id<MTLDepthStencilState> aDepthState = myContext->TransparentDepthStencilState();
+  if (aDepthState != nil && aDepthState != myDepthStencilState)
+  {
+    [myEncoder setDepthStencilState:aDepthState];
+    myDepthStencilState = aDepthState;
+  }
 }

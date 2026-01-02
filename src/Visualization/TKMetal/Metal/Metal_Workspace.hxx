@@ -157,6 +157,18 @@ public:
   //! Apply pipeline state for edge/line rendering.
   Standard_EXPORT void ApplyEdgePipelineState();
 
+  //! Set transparent/blending rendering mode.
+  void SetTransparentMode(bool theValue) { myIsTransparentMode = theValue; }
+
+  //! Return true if transparent mode is active.
+  bool IsTransparentMode() const { return myIsTransparentMode; }
+
+  //! Apply pipeline state for transparent objects (alpha blending enabled, depth write disabled).
+  Standard_EXPORT void ApplyBlendingPipelineState();
+
+  //! Return depth-stencil state with depth write disabled (for transparent objects).
+  Standard_EXPORT void ApplyTransparentDepthState();
+
 protected:
 
   Metal_Context* myContext;      //!< Metal context
@@ -181,6 +193,7 @@ protected:
   Quantity_ColorRGBA             myEdgeColor;        //!< edge color for edge rendering
   bool                           myIsEdgeRendering;  //!< edge rendering mode flag
   bool                           myIsWireframeMode;  //!< wireframe mode flag
+  bool                           myIsTransparentMode; //!< transparent/blending mode flag
 
   Metal_ShaderManager*           myShaderManager;    //!< shader manager
   Metal_Clipping*                myClipping;         //!< clipping manager

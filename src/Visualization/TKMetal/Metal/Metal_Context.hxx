@@ -124,11 +124,17 @@ public: //! @name Device and command queue access
   //! Return default depth-stencil state.
   id<MTLDepthStencilState> DefaultDepthStencilState() const { return myDefaultDepthStencilState; }
 
+  //! Return depth-stencil state with depth write disabled (for transparent objects).
+  id<MTLDepthStencilState> TransparentDepthStencilState() const { return myTransparentDepthStencilState; }
+
   //! Return line/edge render pipeline state.
   id<MTLRenderPipelineState> LinePipeline() const { return myLinePipeline; }
 
   //! Return wireframe render pipeline state (triangles as lines).
   id<MTLRenderPipelineState> WireframePipeline() const { return myWireframePipeline; }
+
+  //! Return blending (transparency) render pipeline state.
+  id<MTLRenderPipelineState> BlendingPipeline() const { return myBlendingPipeline; }
 
   //! Initialize default shaders and pipeline.
   Standard_EXPORT bool InitDefaultShaders();
@@ -246,7 +252,9 @@ private:
   id<MTLRenderPipelineState> myDefaultPipeline;          //!< Default render pipeline
   id<MTLRenderPipelineState> myLinePipeline;             //!< Line/edge render pipeline
   id<MTLRenderPipelineState> myWireframePipeline;        //!< Wireframe render pipeline
-  id<MTLDepthStencilState>   myDefaultDepthStencilState; //!< Default depth-stencil state
+  id<MTLRenderPipelineState> myBlendingPipeline;         //!< Blending (transparency) pipeline
+  id<MTLDepthStencilState>   myDefaultDepthStencilState;     //!< Default depth-stencil state
+  id<MTLDepthStencilState>   myTransparentDepthStencilState; //!< Depth-stencil for transparent objects
   dispatch_semaphore_t       myFrameSemaphore;           //!< Semaphore for triple-buffering
 #else
   void*                myDevice;
@@ -256,7 +264,9 @@ private:
   void*                myDefaultPipeline;
   void*                myLinePipeline;
   void*                myWireframePipeline;
+  void*                myBlendingPipeline;
   void*                myDefaultDepthStencilState;
+  void*                myTransparentDepthStencilState;
   void*                myFrameSemaphore;
 #endif
 

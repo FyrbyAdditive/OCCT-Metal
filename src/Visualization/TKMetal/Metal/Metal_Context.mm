@@ -41,7 +41,9 @@ Metal_Context::Metal_Context(const occ::handle<Metal_Caps>& theCaps)
   myDefaultPipeline(nil),
   myLinePipeline(nil),
   myWireframePipeline(nil),
+  myBlendingPipeline(nil),
   myDefaultDepthStencilState(nil),
+  myTransparentDepthStencilState(nil),
   myFrameSemaphore(nil),
   myCaps(theCaps),
   myMsgContext(Message::DefaultMessenger()),
@@ -115,7 +117,9 @@ void Metal_Context::forcedRelease()
   myDefaultPipeline = nil;
   myLinePipeline = nil;
   myWireframePipeline = nil;
+  myBlendingPipeline = nil;
   myDefaultDepthStencilState = nil;
+  myTransparentDepthStencilState = nil;
   myDefaultLibrary = nil;
   myCommandQueue = nil;
   myDevice = nil;
@@ -677,6 +681,16 @@ fragment float4 fragment_phong(
       myWireframePipeline = myDefaultPipeline;
     }
 
+    // Create blending pipeline for transparent objects
+    // Uses standard alpha blending (already enabled in pipelineDesc)
+    myBlendingPipeline = [myDevice newRenderPipelineStateWithDescriptor:pipelineDesc
+                                                                  error:&error];
+    if (myBlendingPipeline == nil)
+    {
+      myMsgContext->SendWarning() << "Metal_Context: Blending pipeline creation failed, using default";
+      myBlendingPipeline = myDefaultPipeline;
+    }
+
     // Create depth-stencil state
     MTLDepthStencilDescriptor* depthDesc = [[MTLDepthStencilDescriptor alloc] init];
     depthDesc.depthCompareFunction = MTLCompareFunctionLess;
@@ -689,7 +703,19 @@ fragment float4 fragment_phong(
       return false;
     }
 
-    myMsgContext->SendInfo() << "Metal_Context: Default shaders initialized (with edge/wireframe support)";
+    // Create depth-stencil state for transparent objects (depth test but no write)
+    MTLDepthStencilDescriptor* transparentDepthDesc = [[MTLDepthStencilDescriptor alloc] init];
+    transparentDepthDesc.depthCompareFunction = MTLCompareFunctionLess;
+    transparentDepthDesc.depthWriteEnabled = NO; // Key difference: don't write to depth buffer
+
+    myTransparentDepthStencilState = [myDevice newDepthStencilStateWithDescriptor:transparentDepthDesc];
+    if (myTransparentDepthStencilState == nil)
+    {
+      myMsgContext->SendWarning() << "Metal_Context: Transparent depth-stencil state creation failed, using default";
+      myTransparentDepthStencilState = myDefaultDepthStencilState;
+    }
+
+    myMsgContext->SendInfo() << "Metal_Context: Default shaders initialized (with edge/wireframe/blending support)";
     return true;
   }
 }
