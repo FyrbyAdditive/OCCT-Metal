@@ -19,6 +19,7 @@ enum Aspect_GraphicsLibrary
 {
   Aspect_GraphicsLibrary_OpenGL,
   Aspect_GraphicsLibrary_OpenGLES,
+  Aspect_GraphicsLibrary_Metal,
 };
 
 #endif // _Aspect_GraphicsLibrary_HeaderFile
