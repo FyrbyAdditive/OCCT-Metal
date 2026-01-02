@@ -4,6 +4,7 @@ set(OCCT_Visualization_LIST_OF_TOOLKITS
   TKV3d
   TKOpenGl
   TKOpenGles
+  TKMetal
   TKMeshVS
   TKIVtk
   TKD3DHost

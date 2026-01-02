@@ -1,0 +1,7 @@
+# Source files for TKMetal
+set(OCCT_TKMetal_FILES_LOCATION "${CMAKE_CURRENT_LIST_DIR}")
+
+set(OCCT_TKMetal_FILES
+  EXTERNLIB
+  PACKAGES
+)
