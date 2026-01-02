@@ -127,6 +127,21 @@ public:
 #ifdef __OBJC__
   //! Return native Metal texture object.
   id<MTLTexture> Texture() const { return myTexture; }
+
+  //! Set Metal texture directly (for framebuffer attachments).
+  //! @param theTexture Metal texture object
+  //! @param theWidth texture width
+  //! @param theHeight texture height
+  void SetTexture(id<MTLTexture> theTexture, int theWidth, int theHeight)
+  {
+    myTexture = theTexture;
+    myWidth = theWidth;
+    myHeight = theHeight;
+    myDepth = 1;
+    myMipLevels = 1;
+    myArrayLayers = 1;
+    myTextureType = Metal_TextureType_2D;
+  }
 #endif
 
   //! Convert Image_Format to Metal pixel format.

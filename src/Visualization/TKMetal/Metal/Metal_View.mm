@@ -63,8 +63,19 @@ Metal_View::~Metal_View()
 // =======================================================================
 void Metal_View::ReleaseGlResources(Metal_Context* theCtx)
 {
-  (void)theCtx;
-  // Release any Metal-specific resources here
+  // Release framebuffers
+  if (!myFBO.IsNull())
+  {
+    myFBO->Release(theCtx);
+    myFBO.Nullify();
+  }
+  if (!myMainFBO.IsNull())
+  {
+    myMainFBO->Release(theCtx);
+    myMainFBO.Nullify();
+  }
+
+  // Release window
   myWindow.Nullify();
 }
 
@@ -360,7 +371,7 @@ occ::handle<Graphic3d_Layer> Metal_View::Layer(const Graphic3d_ZLayerId theLayer
 // =======================================================================
 occ::handle<Standard_Transient> Metal_View::FBO() const
 {
-  return occ::handle<Standard_Transient>();
+  return myFBO;
 }
 
 // =======================================================================
@@ -369,8 +380,8 @@ occ::handle<Standard_Transient> Metal_View::FBO() const
 // =======================================================================
 void Metal_View::SetFBO(const occ::handle<Standard_Transient>& theFbo)
 {
-  (void)theFbo;
-  // FBO support will be implemented in later phases
+  myFBO = occ::handle<Metal_FrameBuffer>::DownCast(theFbo);
+  myBackBufferRestored = false;
 }
 
 // =======================================================================
@@ -379,10 +390,25 @@ void Metal_View::SetFBO(const occ::handle<Standard_Transient>& theFbo)
 // =======================================================================
 occ::handle<Standard_Transient> Metal_View::FBOCreate(const int theWidth, const int theHeight)
 {
-  (void)theWidth;
-  (void)theHeight;
-  // FBO support will be implemented in later phases
-  return occ::handle<Standard_Transient>();
+  if (myContext.IsNull() || !myContext->IsValid())
+  {
+    return occ::handle<Standard_Transient>();
+  }
+
+  // Create new framebuffer with default color and depth formats
+  occ::handle<Metal_FrameBuffer> aFrameBuffer = new Metal_FrameBuffer("UserFBO");
+
+  NCollection_Vec2<int> aSize(theWidth, theHeight);
+  if (!aFrameBuffer->Init(myContext.get(),
+                          aSize,
+                          Metal_PixelFormat_BGRA8,
+                          Metal_PixelFormat_Depth32F,
+                          0)) // No MSAA for user-created FBOs by default
+  {
+    return occ::handle<Standard_Transient>();
+  }
+
+  return aFrameBuffer;
 }
 
 // =======================================================================
@@ -391,6 +417,11 @@ occ::handle<Standard_Transient> Metal_View::FBOCreate(const int theWidth, const 
 // =======================================================================
 void Metal_View::FBORelease(occ::handle<Standard_Transient>& theFbo)
 {
+  occ::handle<Metal_FrameBuffer> aFrameBuffer = occ::handle<Metal_FrameBuffer>::DownCast(theFbo);
+  if (!aFrameBuffer.IsNull())
+  {
+    aFrameBuffer->Release(myContext.get());
+  }
   theFbo.Nullify();
 }
 
@@ -404,11 +435,20 @@ void Metal_View::FBOGetDimensions(const occ::handle<Standard_Transient>& theFbo,
                                   int& theWidthMax,
                                   int& theHeightMax)
 {
-  (void)theFbo;
-  theWidth = 0;
-  theHeight = 0;
-  theWidthMax = 0;
-  theHeightMax = 0;
+  occ::handle<Metal_FrameBuffer> aFrameBuffer = occ::handle<Metal_FrameBuffer>::DownCast(theFbo);
+  if (aFrameBuffer.IsNull())
+  {
+    theWidth = 0;
+    theHeight = 0;
+    theWidthMax = 0;
+    theHeightMax = 0;
+    return;
+  }
+
+  theWidth = aFrameBuffer->GetVPSizeX();
+  theHeight = aFrameBuffer->GetVPSizeY();
+  theWidthMax = aFrameBuffer->GetSizeX();
+  theHeightMax = aFrameBuffer->GetSizeY();
 }
 
 // =======================================================================
@@ -419,9 +459,11 @@ void Metal_View::FBOChangeViewport(const occ::handle<Standard_Transient>& theFbo
                                    const int theWidth,
                                    const int theHeight)
 {
-  (void)theFbo;
-  (void)theWidth;
-  (void)theHeight;
+  occ::handle<Metal_FrameBuffer> aFrameBuffer = occ::handle<Metal_FrameBuffer>::DownCast(theFbo);
+  if (!aFrameBuffer.IsNull())
+  {
+    aFrameBuffer->ChangeViewport(theWidth, theHeight);
+  }
 }
 
 // =======================================================================

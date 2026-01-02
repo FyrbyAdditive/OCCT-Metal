@@ -10,6 +10,8 @@ set(OCCT_Metal_FILES
   Metal_Clipping.mm
   Metal_Context.hxx
   Metal_Context.mm
+  Metal_FrameBuffer.hxx
+  Metal_FrameBuffer.mm
   Metal_GraphicDriver.hxx
   Metal_GraphicDriver.mm
   Metal_GraphicDriverFactory.hxx

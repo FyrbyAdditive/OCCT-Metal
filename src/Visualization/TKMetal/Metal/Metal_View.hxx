@@ -23,6 +23,7 @@
 #include <Graphic3d_SequenceOfHClipPlane.hxx>
 #include <Metal_Caps.hxx>
 #include <Metal_Context.hxx>
+#include <Metal_FrameBuffer.hxx>
 #include <Metal_Window.hxx>
 #include <NCollection_List.hxx>
 #include <Quantity_Color.hxx>
@@ -224,6 +225,10 @@ protected:
 
   occ::handle<Graphic3d_LightSet>   myLights;          //!< Lights
   occ::handle<Graphic3d_SequenceOfHClipPlane> myClipPlanes; //!< Clip planes
+
+  // Framebuffer support
+  occ::handle<Metal_FrameBuffer>    myFBO;             //!< Current FBO for offscreen rendering
+  occ::handle<Metal_FrameBuffer>    myMainFBO;         //!< Main scene FBO (for MSAA)
 
   // Gradient background
   Quantity_Color                    myBgGradientFrom;   //!< Gradient start color
