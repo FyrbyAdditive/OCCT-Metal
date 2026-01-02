@@ -22,6 +22,7 @@ set(OCCT_Metal_FILES
   Metal_IndexBuffer.mm
   Metal_PrimitiveArray.hxx
   Metal_PrimitiveArray.mm
+  Metal_RenderFilter.hxx
   Metal_Resource.hxx
   Metal_Resource.mm
   Metal_Sampler.hxx

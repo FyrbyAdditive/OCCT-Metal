@@ -19,6 +19,7 @@
 #include <Graphic3d_LightSet.hxx>
 #include <Graphic3d_TypeOfShadingModel.hxx>
 #include <Graphic3d_SequenceOfHClipPlane.hxx>
+#include <Metal_RenderFilter.hxx>
 #include <NCollection_Mat4.hxx>
 #include <Quantity_ColorRGBA.hxx>
 
@@ -169,6 +170,17 @@ public:
   //! Return depth-stencil state with depth write disabled (for transparent objects).
   Standard_EXPORT void ApplyTransparentDepthState();
 
+  //! Return current render filter.
+  Metal_RenderFilter RenderFilter() const { return myRenderFilter; }
+
+  //! Set render filter for controlling which elements are rendered.
+  void SetRenderFilter(Metal_RenderFilter theFilter) { myRenderFilter = theFilter; }
+
+  //! Return true if the given aspect should be rendered based on current filter.
+  //! @param theAspect aspect to check
+  //! @return true if aspect passes filter and should be rendered
+  Standard_EXPORT bool ShouldRender(const occ::handle<Graphic3d_Aspects>& theAspect) const;
+
 protected:
 
   Metal_Context* myContext;      //!< Metal context
@@ -199,6 +211,7 @@ protected:
   Metal_Clipping*                myClipping;         //!< clipping manager
   Graphic3d_TypeOfShadingModel   myShadingModel;     //!< current shading model
   occ::handle<Graphic3d_LightSet> myLightSources;    //!< current light sources
+  Metal_RenderFilter             myRenderFilter;     //!< current render filter
 };
 
 #endif // Metal_Workspace_HeaderFile

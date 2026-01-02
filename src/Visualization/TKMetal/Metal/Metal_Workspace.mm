@@ -18,6 +18,7 @@
 #include <Metal_View.hxx>
 #include <Metal_ShaderManager.hxx>
 #include <Metal_Clipping.hxx>
+#include <Aspect_InteriorStyle.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_Workspace, Standard_Transient)
 
@@ -39,7 +40,8 @@ Metal_Workspace::Metal_Workspace(Metal_Context* theCtx, Metal_View* theView)
   myIsTransparentMode(false),
   myShaderManager(nullptr),
   myClipping(nullptr),
-  myShadingModel(Graphic3d_TypeOfShadingModel_Phong)
+  myShadingModel(Graphic3d_TypeOfShadingModel_Phong),
+  myRenderFilter(Metal_RenderFilter_Empty)
 {
   myModelMatrix.InitIdentity();
   myProjectionMatrix.InitIdentity();
@@ -380,4 +382,55 @@ void Metal_Workspace::ApplyTransparentDepthState()
     [myEncoder setDepthStencilState:aDepthState];
     myDepthStencilState = aDepthState;
   }
+}
+
+// =======================================================================
+// function : ShouldRender
+// purpose  : Check if aspect should be rendered based on current filter
+// =======================================================================
+bool Metal_Workspace::ShouldRender(const occ::handle<Graphic3d_Aspects>& theAspect) const
+{
+  if (myRenderFilter == Metal_RenderFilter_Empty)
+  {
+    return true; // No filter, render everything
+  }
+
+  if (theAspect.IsNull())
+  {
+    return true; // No aspect to check, render by default
+  }
+
+  // Check opaque vs transparent filter
+  const bool isTransparent = theAspect->InteriorColorRGBA().Alpha() < 1.0f;
+
+  if ((myRenderFilter & Metal_RenderFilter_OpaqueOnly) != 0)
+  {
+    // Render only opaque elements
+    if (isTransparent)
+    {
+      return false;
+    }
+  }
+
+  if ((myRenderFilter & Metal_RenderFilter_TransparentOnly) != 0)
+  {
+    // Render only transparent elements
+    if (!isTransparent)
+    {
+      return false;
+    }
+  }
+
+  // Check fill mode filter
+  if ((myRenderFilter & Metal_RenderFilter_FillModeOnly) != 0)
+  {
+    // Only render filled (solid) geometry, skip wireframe
+    if (theAspect->InteriorStyle() == Aspect_IS_EMPTY ||
+        theAspect->InteriorStyle() == Aspect_IS_HOLLOW)
+    {
+      return false;
+    }
+  }
+
+  return true;
 }
