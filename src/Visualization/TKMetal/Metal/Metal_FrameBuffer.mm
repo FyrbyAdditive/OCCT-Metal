@@ -490,3 +490,155 @@ id<MTLTexture> Metal_FrameBuffer::MetalDepthTexture() const
   }
   return myDepthStencilTexture->Texture();
 }
+
+// =======================================================================
+// function : ReadColorPixels
+// purpose  : Read color buffer pixels into CPU memory
+// =======================================================================
+bool Metal_FrameBuffer::ReadColorPixels(Metal_Context* theCtx,
+                                          Standard_Byte* theData,
+                                          int theIndex) const
+{
+  if (theCtx == nullptr || theData == nullptr || !myIsValid)
+  {
+    return false;
+  }
+
+  if (theIndex < 0 || theIndex >= myColorTextures.Length())
+  {
+    return false;
+  }
+
+  id<MTLTexture> aSrcTexture = myColorTextures.Value(theIndex)->Texture();
+  if (aSrcTexture == nil)
+  {
+    return false;
+  }
+
+  // Calculate bytes per row and total size
+  int aBpp = 4; // Assume 4 bytes per pixel for RGBA/BGRA
+  MTLPixelFormat aFormat = aSrcTexture.pixelFormat;
+  if (aFormat == MTLPixelFormatRGBA16Float)
+  {
+    aBpp = 8;
+  }
+  else if (aFormat == MTLPixelFormatRGBA32Float)
+  {
+    aBpp = 16;
+  }
+
+  size_t aBytesPerRow = mySizeX * aBpp;
+  size_t aTotalBytes = aBytesPerRow * mySizeY;
+
+  // For private storage textures, we need to use a blit encoder to copy to a shared buffer
+  if (aSrcTexture.storageMode == MTLStorageModePrivate)
+  {
+    // Create a temporary shared buffer for readback
+    id<MTLBuffer> aReadbackBuffer = [theCtx->Device() newBufferWithLength:aTotalBytes
+                                                                  options:MTLResourceStorageModeShared];
+    if (aReadbackBuffer == nil)
+    {
+      return false;
+    }
+
+    // Create command buffer and blit encoder
+    id<MTLCommandBuffer> aCmdBuffer = theCtx->CreateCommandBuffer();
+    id<MTLBlitCommandEncoder> aBlitEncoder = [aCmdBuffer blitCommandEncoder];
+
+    // Copy texture to buffer
+    [aBlitEncoder copyFromTexture:aSrcTexture
+                      sourceSlice:0
+                      sourceLevel:0
+                     sourceOrigin:MTLOriginMake(0, 0, 0)
+                       sourceSize:MTLSizeMake(mySizeX, mySizeY, 1)
+                         toBuffer:aReadbackBuffer
+                destinationOffset:0
+           destinationBytesPerRow:aBytesPerRow
+         destinationBytesPerImage:aTotalBytes];
+
+    [aBlitEncoder endEncoding];
+    [aCmdBuffer commit];
+    [aCmdBuffer waitUntilCompleted];
+
+    // Copy from buffer to destination
+    memcpy(theData, aReadbackBuffer.contents, aTotalBytes);
+  }
+  else
+  {
+    // Texture is already CPU-accessible, read directly
+    MTLRegion aRegion = MTLRegionMake2D(0, 0, mySizeX, mySizeY);
+    [aSrcTexture getBytes:theData
+              bytesPerRow:aBytesPerRow
+               fromRegion:aRegion
+              mipmapLevel:0];
+  }
+
+  return true;
+}
+
+// =======================================================================
+// function : ReadDepthPixels
+// purpose  : Read depth buffer pixels into CPU memory
+// =======================================================================
+bool Metal_FrameBuffer::ReadDepthPixels(Metal_Context* theCtx,
+                                          float* theData) const
+{
+  if (theCtx == nullptr || theData == nullptr || !myIsValid)
+  {
+    return false;
+  }
+
+  if (myDepthStencilTexture.IsNull())
+  {
+    return false;
+  }
+
+  id<MTLTexture> aSrcTexture = myDepthStencilTexture->Texture();
+  if (aSrcTexture == nil)
+  {
+    return false;
+  }
+
+  size_t aBytesPerRow = mySizeX * sizeof(float);
+  size_t aTotalBytes = aBytesPerRow * mySizeY;
+
+  // For private storage textures, we need to use a blit encoder
+  if (aSrcTexture.storageMode == MTLStorageModePrivate)
+  {
+    id<MTLBuffer> aReadbackBuffer = [theCtx->Device() newBufferWithLength:aTotalBytes
+                                                                  options:MTLResourceStorageModeShared];
+    if (aReadbackBuffer == nil)
+    {
+      return false;
+    }
+
+    id<MTLCommandBuffer> aCmdBuffer = theCtx->CreateCommandBuffer();
+    id<MTLBlitCommandEncoder> aBlitEncoder = [aCmdBuffer blitCommandEncoder];
+
+    [aBlitEncoder copyFromTexture:aSrcTexture
+                      sourceSlice:0
+                      sourceLevel:0
+                     sourceOrigin:MTLOriginMake(0, 0, 0)
+                       sourceSize:MTLSizeMake(mySizeX, mySizeY, 1)
+                         toBuffer:aReadbackBuffer
+                destinationOffset:0
+           destinationBytesPerRow:aBytesPerRow
+         destinationBytesPerImage:aTotalBytes];
+
+    [aBlitEncoder endEncoding];
+    [aCmdBuffer commit];
+    [aCmdBuffer waitUntilCompleted];
+
+    memcpy(theData, aReadbackBuffer.contents, aTotalBytes);
+  }
+  else
+  {
+    MTLRegion aRegion = MTLRegionMake2D(0, 0, mySizeX, mySizeY);
+    [aSrcTexture getBytes:theData
+              bytesPerRow:aBytesPerRow
+               fromRegion:aRegion
+              mipmapLevel:0];
+  }
+
+  return true;
+}

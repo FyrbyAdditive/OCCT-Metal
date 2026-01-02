@@ -169,6 +169,22 @@ public:
 
   //! Return raw Metal texture for depth attachment.
   id<MTLTexture> MetalDepthTexture() const;
+
+  //! Read color buffer pixels into CPU memory.
+  //! @param theCtx     Metal context
+  //! @param theData    destination buffer (must be large enough)
+  //! @param theIndex   color attachment index
+  //! @return true on success
+  Standard_EXPORT bool ReadColorPixels(Metal_Context* theCtx,
+                                        Standard_Byte* theData,
+                                        int theIndex = 0) const;
+
+  //! Read depth buffer pixels into CPU memory.
+  //! @param theCtx  Metal context
+  //! @param theData destination buffer for float depth values
+  //! @return true on success
+  Standard_EXPORT bool ReadDepthPixels(Metal_Context* theCtx,
+                                        float* theData) const;
 #endif
 
 protected:

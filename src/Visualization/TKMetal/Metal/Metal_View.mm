@@ -21,8 +21,10 @@
 #include <Metal_GraphicDriver.hxx>
 #include <Metal_Structure.hxx>
 #include <Metal_Workspace.hxx>
+#include <Metal_FrameBuffer.hxx>
 #include <BVH_LinearBuilder.hxx>
 #include <Graphic3d_Structure.hxx>
+#include <Image_PixMap.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_View, Graphic3d_CView)
 
@@ -327,10 +329,124 @@ void Metal_View::Invalidate()
 bool Metal_View::BufferDump(Image_PixMap& theImage,
                             const Graphic3d_BufferType& theBufferType)
 {
-  (void)theImage;
-  (void)theBufferType;
-  // Not implemented in Phase 1
-  return false;
+  if (myContext.IsNull() || !myContext->IsValid())
+  {
+    return false;
+  }
+
+  // Get the texture to read from
+  id<MTLTexture> aTexture = nil;
+  int aWidth = 0;
+  int aHeight = 0;
+
+  if (theBufferType == Graphic3d_BT_Depth)
+  {
+    // Read from depth buffer
+    aTexture = myDepthTexture;
+    aWidth = myDepthWidth;
+    aHeight = myDepthHeight;
+
+    if (aTexture == nil || aWidth == 0 || aHeight == 0)
+    {
+      return false;
+    }
+
+    // Initialize image for depth buffer (32-bit float)
+    if (!theImage.InitZero(Image_Format_GrayF, aWidth, aHeight))
+    {
+      return false;
+    }
+
+    // Read depth data
+    MTLRegion aRegion = MTLRegionMake2D(0, 0, aWidth, aHeight);
+    size_t aBytesPerRow = aWidth * sizeof(float);
+
+    [aTexture getBytes:theImage.ChangeData()
+           bytesPerRow:aBytesPerRow
+            fromRegion:aRegion
+           mipmapLevel:0];
+
+    return true;
+  }
+
+  // For color buffer, get from FBO or main scene
+  occ::handle<Metal_FrameBuffer> aFBO;
+  if (!myFBO.IsNull() && myFBO->IsValid())
+  {
+    aFBO = myFBO;
+  }
+  else if (!myMainFBO.IsNull() && myMainFBO->IsValid())
+  {
+    aFBO = myMainFBO;
+  }
+
+  if (aFBO.IsNull())
+  {
+    // For window rendering without FBO, we cannot read back
+    return false;
+  }
+
+  aWidth = aFBO->GetSizeX();
+  aHeight = aFBO->GetSizeY();
+  aTexture = aFBO->MetalColorTexture();
+
+  if (aTexture == nil || aWidth == 0 || aHeight == 0)
+  {
+    return false;
+  }
+
+  // Determine image format based on texture format
+  Image_Format anImageFormat = Image_Format_RGBA;
+  MTLPixelFormat aPixelFormat = aTexture.pixelFormat;
+
+  if (aPixelFormat == MTLPixelFormatBGRA8Unorm)
+  {
+    anImageFormat = Image_Format_BGRA;
+  }
+  else if (aPixelFormat == MTLPixelFormatRGBA8Unorm)
+  {
+    anImageFormat = Image_Format_RGBA;
+  }
+  else if (aPixelFormat == MTLPixelFormatRGBA16Float)
+  {
+    anImageFormat = Image_Format_RGBAF_half;
+  }
+  else if (aPixelFormat == MTLPixelFormatRGBA32Float)
+  {
+    anImageFormat = Image_Format_RGBAF;
+  }
+
+  // Initialize image
+  if (!theImage.InitZero(anImageFormat, aWidth, aHeight))
+  {
+    return false;
+  }
+
+  // Read pixel data using the FBO's readback method (handles private storage textures)
+  if (!aFBO->ReadColorPixels(myContext.get(), theImage.ChangeData()))
+  {
+    return false;
+  }
+
+  // Metal textures are top-to-bottom, but Image_PixMap expects bottom-to-top
+  // Flip the image vertically
+  size_t aBytesPerRow = theImage.SizeRowBytes();
+  Standard_Byte* aRowBuffer = new Standard_Byte[aBytesPerRow];
+  Standard_Byte* aData = theImage.ChangeData();
+
+  for (int y = 0; y < aHeight / 2; ++y)
+  {
+    Standard_Byte* aTopRow = aData + y * aBytesPerRow;
+    Standard_Byte* aBottomRow = aData + (aHeight - 1 - y) * aBytesPerRow;
+
+    memcpy(aRowBuffer, aTopRow, aBytesPerRow);
+    memcpy(aTopRow, aBottomRow, aBytesPerRow);
+    memcpy(aBottomRow, aRowBuffer, aBytesPerRow);
+  }
+
+  delete[] aRowBuffer;
+
+  return true;
 }
 
 // =======================================================================
