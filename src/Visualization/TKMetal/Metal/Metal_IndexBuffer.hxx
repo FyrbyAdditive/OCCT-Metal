@@ -67,6 +67,17 @@ public:
                             int theNbIndices,
                             const unsigned int* theData);
 
+  //! Initialize index buffer with specified type.
+  //! @param theCtx Metal context
+  //! @param theType index type (UInt16 or UInt32)
+  //! @param theNbIndices number of indices
+  //! @param theData pointer to index data
+  //! @return true on success
+  Standard_EXPORT bool Init(Metal_Context* theCtx,
+                            Metal_IndexType theType,
+                            int theNbIndices,
+                            const void* theData);
+
 #ifdef __OBJC__
   //! Return Metal index type enum.
   MTLIndexType MetalIndexType() const

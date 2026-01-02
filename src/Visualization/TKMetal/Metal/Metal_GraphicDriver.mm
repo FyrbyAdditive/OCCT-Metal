@@ -14,6 +14,7 @@
 #include <Metal_GraphicDriver.hxx>
 #include <Metal_View.hxx>
 #include <Metal_Window.hxx>
+#include <Metal_Structure.hxx>
 #include <Graphic3d_StructureManager.hxx>
 #include <Graphic3d_TypeOfLimit.hxx>
 
@@ -156,10 +157,8 @@ int Metal_GraphicDriver::InquireLimit(const Graphic3d_TypeOfLimit theType) const
 occ::handle<Graphic3d_CStructure> Metal_GraphicDriver::CreateStructure(
   const occ::handle<Graphic3d_StructureManager>& theManager)
 {
-  // Metal_Structure implementation will be added later
-  // For now, return null (Phase 1 only needs basic rendering)
-  (void)theManager;
-  return occ::handle<Graphic3d_CStructure>();
+  occ::handle<Metal_Structure> aStructure = new Metal_Structure(theManager);
+  return aStructure;
 }
 
 // =======================================================================

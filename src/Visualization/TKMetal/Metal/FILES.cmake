@@ -12,12 +12,18 @@ set(OCCT_Metal_FILES
   Metal_GraphicDriver.mm
   Metal_GraphicDriverFactory.hxx
   Metal_GraphicDriverFactory.mm
+  Metal_Group.hxx
+  Metal_Group.mm
   Metal_IndexBuffer.hxx
   Metal_IndexBuffer.mm
+  Metal_PrimitiveArray.hxx
+  Metal_PrimitiveArray.mm
   Metal_Resource.hxx
   Metal_Resource.mm
   Metal_Sampler.hxx
   Metal_Sampler.mm
+  Metal_Structure.hxx
+  Metal_Structure.mm
   Metal_Texture.hxx
   Metal_Texture.mm
   Metal_UniformBuffer.hxx
@@ -28,4 +34,6 @@ set(OCCT_Metal_FILES
   Metal_View.mm
   Metal_Window.hxx
   Metal_Window.mm
+  Metal_Workspace.hxx
+  Metal_Workspace.mm
 )

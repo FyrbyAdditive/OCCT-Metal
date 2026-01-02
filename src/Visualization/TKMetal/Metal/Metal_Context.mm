@@ -38,6 +38,8 @@ Metal_Context::Metal_Context(const occ::handle<Metal_Caps>& theCaps)
   myCommandQueue(nil),
   myDefaultLibrary(nil),
   myCurrentCmdBuffer(nil),
+  myDefaultPipeline(nil),
+  myDefaultDepthStencilState(nil),
   myFrameSemaphore(nil),
   myCaps(theCaps),
   myMsgContext(Message::DefaultMessenger()),
@@ -108,6 +110,8 @@ void Metal_Context::forcedRelease()
   }
 
   myCurrentCmdBuffer = nil;
+  myDefaultPipeline = nil;
+  myDefaultDepthStencilState = nil;
   myDefaultLibrary = nil;
   myCommandQueue = nil;
   myDevice = nil;
@@ -525,4 +529,142 @@ TCollection_AsciiString Metal_Context::MemoryInfo() const
     }
   }
   return aResult;
+}
+
+// =======================================================================
+// function : InitDefaultShaders
+// purpose  : Initialize default shaders and pipeline
+// =======================================================================
+bool Metal_Context::InitDefaultShaders()
+{
+  if (myDevice == nil)
+  {
+    return false;
+  }
+
+  @autoreleasepool
+  {
+    // Basic shader source code embedded in the binary
+    NSString* shaderSource = @R"(
+#include <metal_stdlib>
+using namespace metal;
+
+struct Uniforms {
+  float4x4 modelViewMatrix;
+  float4x4 projectionMatrix;
+  float4   color;
+};
+
+struct VertexOut {
+  float4 position [[position]];
+  float3 normal;
+  float3 viewPosition;
+};
+
+vertex VertexOut vertex_basic(
+  const device float3* positions [[buffer(0)]],
+  constant Uniforms& uniforms    [[buffer(1)]],
+  uint vid                       [[vertex_id]])
+{
+  VertexOut out;
+  float4 worldPos = float4(positions[vid], 1.0);
+  float4 viewPos = uniforms.modelViewMatrix * worldPos;
+  out.position = uniforms.projectionMatrix * viewPos;
+  out.viewPosition = viewPos.xyz;
+  out.normal = float3(0.0, 0.0, 1.0);
+  return out;
+}
+
+fragment float4 fragment_solid_color(
+  VertexOut in                [[stage_in]],
+  constant Uniforms& uniforms [[buffer(0)]])
+{
+  return uniforms.color;
+}
+
+fragment float4 fragment_phong(
+  VertexOut in                [[stage_in]],
+  constant Uniforms& uniforms [[buffer(0)]])
+{
+  float3 lightDir = normalize(float3(0.0, 0.0, 1.0));
+  float3 N = normalize(in.normal);
+  float NdotL = max(dot(N, lightDir), 0.0);
+  float ambient = 0.3;
+  float lighting = ambient + (1.0 - ambient) * NdotL;
+  float4 color = uniforms.color;
+  color.rgb *= lighting;
+  return color;
+}
+)";
+
+    NSError* error = nil;
+
+    // Compile shader library from source
+    id<MTLLibrary> aLibrary = [myDevice newLibraryWithSource:shaderSource
+                                                     options:nil
+                                                       error:&error];
+    if (aLibrary == nil)
+    {
+      if (error != nil)
+      {
+        myMsgContext->SendFail() << "Metal_Context: Shader compilation failed: "
+                                 << [[error localizedDescription] UTF8String];
+      }
+      return false;
+    }
+
+    // Get shader functions
+    id<MTLFunction> vertexFunc = [aLibrary newFunctionWithName:@"vertex_basic"];
+    id<MTLFunction> fragmentFunc = [aLibrary newFunctionWithName:@"fragment_solid_color"];
+
+    if (vertexFunc == nil || fragmentFunc == nil)
+    {
+      myMsgContext->SendFail() << "Metal_Context: Failed to find shader functions";
+      return false;
+    }
+
+    // Create render pipeline descriptor
+    MTLRenderPipelineDescriptor* pipelineDesc = [[MTLRenderPipelineDescriptor alloc] init];
+    pipelineDesc.vertexFunction = vertexFunc;
+    pipelineDesc.fragmentFunction = fragmentFunc;
+    pipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+    pipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+
+    // Enable alpha blending
+    pipelineDesc.colorAttachments[0].blendingEnabled = YES;
+    pipelineDesc.colorAttachments[0].rgbBlendOperation = MTLBlendOperationAdd;
+    pipelineDesc.colorAttachments[0].alphaBlendOperation = MTLBlendOperationAdd;
+    pipelineDesc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    pipelineDesc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+    pipelineDesc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    pipelineDesc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+
+    // Create pipeline state
+    myDefaultPipeline = [myDevice newRenderPipelineStateWithDescriptor:pipelineDesc
+                                                                 error:&error];
+    if (myDefaultPipeline == nil)
+    {
+      if (error != nil)
+      {
+        myMsgContext->SendFail() << "Metal_Context: Pipeline creation failed: "
+                                 << [[error localizedDescription] UTF8String];
+      }
+      return false;
+    }
+
+    // Create depth-stencil state
+    MTLDepthStencilDescriptor* depthDesc = [[MTLDepthStencilDescriptor alloc] init];
+    depthDesc.depthCompareFunction = MTLCompareFunctionLess;
+    depthDesc.depthWriteEnabled = YES;
+
+    myDefaultDepthStencilState = [myDevice newDepthStencilStateWithDescriptor:depthDesc];
+    if (myDefaultDepthStencilState == nil)
+    {
+      myMsgContext->SendFail() << "Metal_Context: Depth-stencil state creation failed";
+      return false;
+    }
+
+    myMsgContext->SendInfo() << "Metal_Context: Default shaders initialized";
+    return true;
+  }
 }

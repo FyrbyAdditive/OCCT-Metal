@@ -33,6 +33,9 @@
 @protocol MTLCommandBuffer;
 @protocol MTLRenderCommandEncoder;
 @protocol MTLLibrary;
+@protocol MTLRenderPipelineState;
+@protocol MTLDepthStencilState;
+@protocol MTLFunction;
 #endif
 
 class Metal_Window;
@@ -114,6 +117,15 @@ public: //! @name Device and command queue access
 
   //! Commit the current command buffer (non-blocking).
   Standard_EXPORT void Commit();
+
+  //! Return default render pipeline state.
+  id<MTLRenderPipelineState> DefaultPipeline() const { return myDefaultPipeline; }
+
+  //! Return default depth-stencil state.
+  id<MTLDepthStencilState> DefaultDepthStencilState() const { return myDefaultDepthStencilState; }
+
+  //! Initialize default shaders and pipeline.
+  Standard_EXPORT bool InitDefaultShaders();
 #endif
 
 public: //! @name Device capabilities
@@ -221,16 +233,20 @@ private:
 private:
 
 #ifdef __OBJC__
-  id<MTLDevice>        myDevice;           //!< Metal device
-  id<MTLCommandQueue>  myCommandQueue;     //!< Command queue
-  id<MTLLibrary>       myDefaultLibrary;   //!< Default shader library
-  id<MTLCommandBuffer> myCurrentCmdBuffer; //!< Current command buffer
-  dispatch_semaphore_t myFrameSemaphore;   //!< Semaphore for triple-buffering
+  id<MTLDevice>              myDevice;                   //!< Metal device
+  id<MTLCommandQueue>        myCommandQueue;             //!< Command queue
+  id<MTLLibrary>             myDefaultLibrary;           //!< Default shader library
+  id<MTLCommandBuffer>       myCurrentCmdBuffer;         //!< Current command buffer
+  id<MTLRenderPipelineState> myDefaultPipeline;          //!< Default render pipeline
+  id<MTLDepthStencilState>   myDefaultDepthStencilState; //!< Default depth-stencil state
+  dispatch_semaphore_t       myFrameSemaphore;           //!< Semaphore for triple-buffering
 #else
   void*                myDevice;
   void*                myCommandQueue;
   void*                myDefaultLibrary;
   void*                myCurrentCmdBuffer;
+  void*                myDefaultPipeline;
+  void*                myDefaultDepthStencilState;
   void*                myFrameSemaphore;
 #endif
 

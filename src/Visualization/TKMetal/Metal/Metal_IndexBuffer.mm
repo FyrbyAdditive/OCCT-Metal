@@ -65,3 +65,26 @@ bool Metal_IndexBuffer::Init(Metal_Context* theCtx,
   myDataTypeSize = sizeof(unsigned int);
   return Metal_Buffer::initData(theCtx, 1, theNbIndices, sizeof(unsigned int), theData);
 }
+
+// =======================================================================
+// function : Init (generic)
+// purpose  : Initialize with specified index type
+// =======================================================================
+bool Metal_IndexBuffer::Init(Metal_Context* theCtx,
+                             Metal_IndexType theType,
+                             int theNbIndices,
+                             const void* theData)
+{
+  myIndexType = theType;
+  myComponentsNb = 1;
+  if (theType == Metal_IndexType_UInt16)
+  {
+    myDataTypeSize = sizeof(unsigned short);
+    return Metal_Buffer::initData(theCtx, 1, theNbIndices, sizeof(unsigned short), theData);
+  }
+  else
+  {
+    myDataTypeSize = sizeof(unsigned int);
+    return Metal_Buffer::initData(theCtx, 1, theNbIndices, sizeof(unsigned int), theData);
+  }
+}
