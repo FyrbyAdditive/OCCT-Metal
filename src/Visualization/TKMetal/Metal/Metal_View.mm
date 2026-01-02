@@ -21,6 +21,7 @@
 #include <Metal_GraphicDriver.hxx>
 #include <Metal_Structure.hxx>
 #include <Metal_Workspace.hxx>
+#include <BVH_LinearBuilder.hxx>
 #include <Graphic3d_Structure.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_View, Graphic3d_CView)
@@ -363,10 +364,56 @@ void Metal_View::InsertLayerBefore(const Graphic3d_ZLayerId theNewLayerId,
                                    const Graphic3d_ZLayerSettings& theSettings,
                                    const Graphic3d_ZLayerId theLayerAfter)
 {
-  (void)theNewLayerId;
-  (void)theSettings;
-  (void)theLayerAfter;
-  // Layer management will be implemented in later phases
+  // Check if layer already exists
+  if (myLayerMap.IsBound(theNewLayerId))
+  {
+    return;
+  }
+
+  // Create BVH builder for frustum culling
+  occ::handle<BVH_Builder3d> aBVHBuilder = new BVH_LinearBuilder<double, 3>(BVH_Constants_LeafNodeSizeSingle, BVH_Constants_MaxTreeDepth);
+
+  // Create the new layer
+  occ::handle<Graphic3d_Layer> aNewLayer = new Graphic3d_Layer(theNewLayerId, aBVHBuilder);
+  aNewLayer->SetLayerSettings(theSettings);
+
+  // Add to map
+  myLayerMap.Bind(theNewLayerId, aNewLayer);
+
+  // Update max layer ID
+  if (theNewLayerId > myZLayerMax)
+  {
+    myZLayerMax = theNewLayerId;
+  }
+
+  // Find position to insert (before theLayerAfter)
+  if (theLayerAfter == Graphic3d_ZLayerId_UNKNOWN || myLayers.IsEmpty())
+  {
+    // Insert at the beginning
+    myLayers.Prepend(aNewLayer);
+  }
+  else
+  {
+    // Find the layer to insert before
+    bool aFound = false;
+    for (NCollection_List<occ::handle<Graphic3d_Layer>>::Iterator anIter(myLayers);
+         anIter.More(); anIter.Next())
+    {
+      if (anIter.Value()->LayerId() == theLayerAfter)
+      {
+        myLayers.InsertBefore(aNewLayer, anIter);
+        aFound = true;
+        break;
+      }
+    }
+    if (!aFound)
+    {
+      // Layer not found, append to end
+      myLayers.Append(aNewLayer);
+    }
+  }
+
+  myBackBufferRestored = false;
 }
 
 // =======================================================================
@@ -377,10 +424,65 @@ void Metal_View::InsertLayerAfter(const Graphic3d_ZLayerId theNewLayerId,
                                   const Graphic3d_ZLayerSettings& theSettings,
                                   const Graphic3d_ZLayerId theLayerBefore)
 {
-  (void)theNewLayerId;
-  (void)theSettings;
-  (void)theLayerBefore;
-  // Layer management will be implemented in later phases
+  // Check if layer already exists
+  if (myLayerMap.IsBound(theNewLayerId))
+  {
+    return;
+  }
+
+  // Create BVH builder for frustum culling
+  occ::handle<BVH_Builder3d> aBVHBuilder = new BVH_LinearBuilder<double, 3>(BVH_Constants_LeafNodeSizeSingle, BVH_Constants_MaxTreeDepth);
+
+  // Create the new layer
+  occ::handle<Graphic3d_Layer> aNewLayer = new Graphic3d_Layer(theNewLayerId, aBVHBuilder);
+  aNewLayer->SetLayerSettings(theSettings);
+
+  // Add to map
+  myLayerMap.Bind(theNewLayerId, aNewLayer);
+
+  // Update max layer ID
+  if (theNewLayerId > myZLayerMax)
+  {
+    myZLayerMax = theNewLayerId;
+  }
+
+  // Find position to insert (after theLayerBefore)
+  if (theLayerBefore == Graphic3d_ZLayerId_UNKNOWN || myLayers.IsEmpty())
+  {
+    // Insert at the end
+    myLayers.Append(aNewLayer);
+  }
+  else
+  {
+    // Find the layer to insert after
+    bool aFound = false;
+    for (NCollection_List<occ::handle<Graphic3d_Layer>>::Iterator anIter(myLayers);
+         anIter.More(); anIter.Next())
+    {
+      if (anIter.Value()->LayerId() == theLayerBefore)
+      {
+        // Move to next position and insert before it (which is after current)
+        anIter.Next();
+        if (anIter.More())
+        {
+          myLayers.InsertBefore(aNewLayer, anIter);
+        }
+        else
+        {
+          myLayers.Append(aNewLayer);
+        }
+        aFound = true;
+        break;
+      }
+    }
+    if (!aFound)
+    {
+      // Layer not found, append to end
+      myLayers.Append(aNewLayer);
+    }
+  }
+
+  myBackBufferRestored = false;
 }
 
 // =======================================================================
@@ -389,8 +491,33 @@ void Metal_View::InsertLayerAfter(const Graphic3d_ZLayerId theNewLayerId,
 // =======================================================================
 void Metal_View::RemoveZLayer(const Graphic3d_ZLayerId theLayerId)
 {
-  (void)theLayerId;
-  // Layer management will be implemented in later phases
+  // Cannot remove default layer
+  if (theLayerId == Graphic3d_ZLayerId_Default)
+  {
+    return;
+  }
+
+  // Check if layer exists
+  if (!myLayerMap.IsBound(theLayerId))
+  {
+    return;
+  }
+
+  // Remove from list
+  for (NCollection_List<occ::handle<Graphic3d_Layer>>::Iterator anIter(myLayers);
+       anIter.More(); anIter.Next())
+  {
+    if (anIter.Value()->LayerId() == theLayerId)
+    {
+      myLayers.Remove(anIter);
+      break;
+    }
+  }
+
+  // Remove from map
+  myLayerMap.UnBind(theLayerId);
+
+  myBackBufferRestored = false;
 }
 
 // =======================================================================
@@ -400,9 +527,12 @@ void Metal_View::RemoveZLayer(const Graphic3d_ZLayerId theLayerId)
 void Metal_View::SetZLayerSettings(const Graphic3d_ZLayerId theLayerId,
                                    const Graphic3d_ZLayerSettings& theSettings)
 {
-  (void)theLayerId;
-  (void)theSettings;
-  // Layer management will be implemented in later phases
+  occ::handle<Graphic3d_Layer> aLayer = Layer(theLayerId);
+  if (!aLayer.IsNull())
+  {
+    aLayer->SetLayerSettings(theSettings);
+    myBackBufferRestored = false;
+  }
 }
 
 // =======================================================================
@@ -429,8 +559,8 @@ const NCollection_List<occ::handle<Graphic3d_Layer>>& Metal_View::Layers() const
 // =======================================================================
 occ::handle<Graphic3d_Layer> Metal_View::Layer(const Graphic3d_ZLayerId theLayerId) const
 {
-  (void)theLayerId;
-  return occ::handle<Graphic3d_Layer>();
+  const occ::handle<Graphic3d_Layer>* aLayerPtr = myLayerMap.Seek(theLayerId);
+  return (aLayerPtr != nullptr) ? *aLayerPtr : occ::handle<Graphic3d_Layer>();
 }
 
 // =======================================================================
@@ -693,9 +823,25 @@ void Metal_View::StatisticInformation(
 void Metal_View::displayStructure(const occ::handle<Graphic3d_CStructure>& theStructure,
                                   const Graphic3d_DisplayPriority thePriority)
 {
-  (void)theStructure;
-  (void)thePriority;
-  // Structure management will be implemented in later phases
+  if (theStructure.IsNull())
+  {
+    return;
+  }
+
+  // Get the layer for this structure
+  Graphic3d_ZLayerId aLayerId = theStructure->ZLayer();
+  occ::handle<Graphic3d_Layer> aLayer = Layer(aLayerId);
+  if (aLayer.IsNull())
+  {
+    // Try default layer
+    aLayer = Layer(Graphic3d_ZLayerId_Default);
+  }
+
+  if (!aLayer.IsNull())
+  {
+    aLayer->Add(theStructure.get(), thePriority);
+  }
+
   myBackBufferRestored = false;
 }
 
@@ -705,8 +851,22 @@ void Metal_View::displayStructure(const occ::handle<Graphic3d_CStructure>& theSt
 // =======================================================================
 void Metal_View::eraseStructure(const occ::handle<Graphic3d_CStructure>& theStructure)
 {
-  (void)theStructure;
-  // Structure management will be implemented in later phases
+  if (theStructure.IsNull())
+  {
+    return;
+  }
+
+  // Search all layers for this structure and remove it
+  for (NCollection_List<occ::handle<Graphic3d_Layer>>::Iterator anIter(myLayers);
+       anIter.More(); anIter.Next())
+  {
+    Graphic3d_DisplayPriority aPriority;
+    if (anIter.Value()->Remove(theStructure.get(), aPriority))
+    {
+      break; // Structure found and removed
+    }
+  }
+
   myBackBufferRestored = false;
 }
 
@@ -717,9 +877,33 @@ void Metal_View::eraseStructure(const occ::handle<Graphic3d_CStructure>& theStru
 void Metal_View::changeZLayer(const occ::handle<Graphic3d_CStructure>& theCStructure,
                               const Graphic3d_ZLayerId theNewLayerId)
 {
-  (void)theCStructure;
-  (void)theNewLayerId;
-  // Structure management will be implemented in later phases
+  if (theCStructure.IsNull())
+  {
+    return;
+  }
+
+  // Find and remove from current layer
+  Graphic3d_DisplayPriority aPriority = Graphic3d_DisplayPriority_Normal;
+  for (NCollection_List<occ::handle<Graphic3d_Layer>>::Iterator anIter(myLayers);
+       anIter.More(); anIter.Next())
+  {
+    if (anIter.Value()->Remove(theCStructure.get(), aPriority))
+    {
+      break;
+    }
+  }
+
+  // Add to new layer
+  occ::handle<Graphic3d_Layer> aNewLayer = Layer(theNewLayerId);
+  if (aNewLayer.IsNull())
+  {
+    aNewLayer = Layer(Graphic3d_ZLayerId_Default);
+  }
+  if (!aNewLayer.IsNull())
+  {
+    aNewLayer->Add(theCStructure.get(), aPriority);
+  }
+
   myBackBufferRestored = false;
 }
 
@@ -730,9 +914,24 @@ void Metal_View::changeZLayer(const occ::handle<Graphic3d_CStructure>& theCStruc
 void Metal_View::changePriority(const occ::handle<Graphic3d_CStructure>& theCStructure,
                                 const Graphic3d_DisplayPriority theNewPriority)
 {
-  (void)theCStructure;
-  (void)theNewPriority;
-  // Structure management will be implemented in later phases
+  if (theCStructure.IsNull())
+  {
+    return;
+  }
+
+  // Find the layer containing this structure
+  for (NCollection_List<occ::handle<Graphic3d_Layer>>::Iterator anIter(myLayers);
+       anIter.More(); anIter.Next())
+  {
+    Graphic3d_DisplayPriority aOldPriority;
+    if (anIter.Value()->Remove(theCStructure.get(), aOldPriority, true))
+    {
+      // Re-add with new priority
+      anIter.Value()->Add(theCStructure.get(), theNewPriority, true);
+      break;
+    }
+  }
+
   myBackBufferRestored = false;
 }
 
@@ -747,58 +946,67 @@ void Metal_View::renderStructures(Metal_Workspace* theWorkspace)
     return;
   }
 
-  // Get displayed structures from base class
-  NCollection_Map<occ::handle<Graphic3d_Structure>> aStructures;
-  DisplayedStructures(aStructures);
+  // Save original model matrix to restore after each structure
+  const NCollection_Mat4<float> aBaseModelMatrix = theWorkspace->ModelMatrix();
 
-  // Render each structure
-  for (NCollection_Map<occ::handle<Graphic3d_Structure>>::Iterator aStructIter(aStructures);
-       aStructIter.More(); aStructIter.Next())
+  // Iterate through layers in order (they are stored in Z-order)
+  for (NCollection_List<occ::handle<Graphic3d_Layer>>::Iterator aLayerIter(myLayers);
+       aLayerIter.More(); aLayerIter.Next())
   {
-    const occ::handle<Graphic3d_Structure>& aStruct = aStructIter.Value();
-    if (aStruct.IsNull() || !aStruct->IsVisible())
+    const occ::handle<Graphic3d_Layer>& aLayer = aLayerIter.Value();
+    if (aLayer.IsNull() || aLayer->NbStructures() == 0)
     {
       continue;
     }
 
-    // Get the underlying CStructure and cast to Metal_Structure
-    const occ::handle<Graphic3d_CStructure>& aCStruct = aStruct->CStructure();
-    if (aCStruct.IsNull())
+    // Render structures in this layer by priority (lower priority first)
+    const Graphic3d_ArrayOfIndexedMapOfStructure& aStructArray = aLayer->ArrayOfStructures();
+    for (int aPriorityIdx = 0; aPriorityIdx < Graphic3d_DisplayPriority_NB; ++aPriorityIdx)
     {
-      continue;
-    }
-
-    Metal_Structure* aMetalStruct = dynamic_cast<Metal_Structure*>(aCStruct.get());
-    if (aMetalStruct != nullptr)
-    {
-      // Set up structure transformation
-      const NCollection_Mat4<float>& aStructTrsf = aMetalStruct->RenderTransformation();
-      NCollection_Mat4<float> aModelMatrix = theWorkspace->ModelMatrix();
-      aModelMatrix = aModelMatrix * aStructTrsf;
-      theWorkspace->SetModelMatrix(aModelMatrix);
-
-      // Check for highlighting
-      if (aStruct->IsHighlighted())
+      const NCollection_IndexedMap<const Graphic3d_CStructure*>& aStructMap = aStructArray[aPriorityIdx];
+      for (int aStructIdx = 1; aStructIdx <= aStructMap.Extent(); ++aStructIdx)
       {
-        theWorkspace->SetHighlighting(true);
-        // Use highlight color if available
-        const occ::handle<Graphic3d_PresentationAttributes>& aHighStyle = aStruct->HighlightStyle();
-        if (!aHighStyle.IsNull())
+        const Graphic3d_CStructure* aCStruct = aStructMap.FindKey(aStructIdx);
+        if (aCStruct == nullptr || !aCStruct->IsVisible())
         {
-          theWorkspace->SetHighlightColor(aHighStyle->ColorRGBA());
+          continue;
+        }
+
+        const Metal_Structure* aMetalStruct = dynamic_cast<const Metal_Structure*>(aCStruct);
+        if (aMetalStruct != nullptr)
+        {
+          // Restore base model matrix and apply structure transformation
+          NCollection_Mat4<float> aModelMatrix = aBaseModelMatrix;
+          const NCollection_Mat4<float>& aStructTrsf = aMetalStruct->RenderTransformation();
+          aModelMatrix = aModelMatrix * aStructTrsf;
+          theWorkspace->SetModelMatrix(aModelMatrix);
+
+          // Check for highlighting
+          if (aCStruct->highlight != 0)
+          {
+            theWorkspace->SetHighlighting(true);
+            const occ::handle<Graphic3d_PresentationAttributes>& aHighStyle = aCStruct->HighlightStyle();
+            if (!aHighStyle.IsNull())
+            {
+              theWorkspace->SetHighlightColor(aHighStyle->ColorRGBA());
+            }
+          }
+
+          // Apply uniforms before rendering
+          theWorkspace->ApplyUniforms();
+
+          // Render the structure (cast away const as Render is non-const in design)
+          const_cast<Metal_Structure*>(aMetalStruct)->Render(theWorkspace);
+
+          // Reset highlighting
+          theWorkspace->SetHighlighting(false);
         }
       }
-
-      // Apply uniforms before rendering
-      theWorkspace->ApplyUniforms();
-
-      // Render the structure
-      aMetalStruct->Render(theWorkspace);
-
-      // Reset highlighting
-      theWorkspace->SetHighlighting(false);
     }
   }
+
+  // Restore original model matrix
+  theWorkspace->SetModelMatrix(aBaseModelMatrix);
 }
 
 // =======================================================================

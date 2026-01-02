@@ -25,6 +25,7 @@
 #include <Metal_Context.hxx>
 #include <Metal_FrameBuffer.hxx>
 #include <Metal_Window.hxx>
+#include <NCollection_DataMap.hxx>
 #include <NCollection_List.hxx>
 #include <Quantity_Color.hxx>
 
@@ -254,7 +255,8 @@ protected:
   Aspect_FillMethod                 myBgImageStyle;    //!< Background image style
 
   // Layer management
-  NCollection_List<occ::handle<Graphic3d_Layer>> myLayers; //!< Z-layers
+  NCollection_List<occ::handle<Graphic3d_Layer>> myLayers; //!< Z-layers (ordered list)
+  NCollection_DataMap<Graphic3d_ZLayerId, occ::handle<Graphic3d_Layer>> myLayerMap; //!< Layer lookup map
   int                               myZLayerMax;        //!< Maximum Z-layer ID
 
   // Frame state
