@@ -136,6 +136,9 @@ public: //! @name Device and command queue access
   //! Return blending (transparency) render pipeline state.
   id<MTLRenderPipelineState> BlendingPipeline() const { return myBlendingPipeline; }
 
+  //! Return gradient background render pipeline state.
+  id<MTLRenderPipelineState> GradientPipeline() const { return myGradientPipeline; }
+
   //! Initialize default shaders and pipeline.
   Standard_EXPORT bool InitDefaultShaders();
 #endif
@@ -253,6 +256,7 @@ private:
   id<MTLRenderPipelineState> myLinePipeline;             //!< Line/edge render pipeline
   id<MTLRenderPipelineState> myWireframePipeline;        //!< Wireframe render pipeline
   id<MTLRenderPipelineState> myBlendingPipeline;         //!< Blending (transparency) pipeline
+  id<MTLRenderPipelineState> myGradientPipeline;         //!< Gradient background pipeline
   id<MTLDepthStencilState>   myDefaultDepthStencilState;     //!< Default depth-stencil state
   id<MTLDepthStencilState>   myTransparentDepthStencilState; //!< Depth-stencil for transparent objects
   dispatch_semaphore_t       myFrameSemaphore;           //!< Semaphore for triple-buffering
@@ -265,6 +269,7 @@ private:
   void*                myLinePipeline;
   void*                myWireframePipeline;
   void*                myBlendingPipeline;
+  void*                myGradientPipeline;
   void*                myDefaultDepthStencilState;
   void*                myTransparentDepthStencilState;
   void*                myFrameSemaphore;

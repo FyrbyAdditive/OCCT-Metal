@@ -232,6 +232,9 @@ private: //! @name Internal rendering helpers
   //! Draw a test triangle to verify rendering pipeline.
   void drawTestTriangle(void* theEncoder, int theWidth, int theHeight);
 
+  //! Draw gradient background.
+  void drawGradientBackground(void* theEncoder, int theWidth, int theHeight);
+
 protected:
 
   const Metal_GraphicDriver*        myDriver;          //!< Graphic driver

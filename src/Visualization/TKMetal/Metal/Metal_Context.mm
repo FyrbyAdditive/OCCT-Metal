@@ -42,6 +42,7 @@ Metal_Context::Metal_Context(const occ::handle<Metal_Caps>& theCaps)
   myLinePipeline(nil),
   myWireframePipeline(nil),
   myBlendingPipeline(nil),
+  myGradientPipeline(nil),
   myDefaultDepthStencilState(nil),
   myTransparentDepthStencilState(nil),
   myFrameSemaphore(nil),
@@ -118,6 +119,7 @@ void Metal_Context::forcedRelease()
   myLinePipeline = nil;
   myWireframePipeline = nil;
   myBlendingPipeline = nil;
+  myGradientPipeline = nil;
   myDefaultDepthStencilState = nil;
   myTransparentDepthStencilState = nil;
   myDefaultLibrary = nil;
@@ -603,6 +605,69 @@ fragment float4 fragment_phong(
   color.rgb *= lighting;
   return color;
 }
+
+// Gradient background structures
+struct GradientUniforms {
+  float4 colorFrom;
+  float4 colorTo;
+  int    fillMethod; // 0=none, 1=horizontal, 2=vertical, 3=diag1, 4=diag2, 5=corner1-4
+  int    padding[3];
+};
+
+struct GradientVertexOut {
+  float4 position [[position]];
+  float2 texCoord;
+};
+
+// Full-screen quad vertex shader for gradient
+vertex GradientVertexOut vertex_gradient(uint vid [[vertex_id]])
+{
+  // Generate full-screen triangle (3 vertices covering entire screen)
+  GradientVertexOut out;
+  float2 positions[3] = {
+    float2(-1.0, -1.0),
+    float2( 3.0, -1.0),
+    float2(-1.0,  3.0)
+  };
+  out.position = float4(positions[vid], 0.0, 1.0);
+  out.texCoord = positions[vid] * 0.5 + 0.5;
+  return out;
+}
+
+// Gradient fragment shader
+fragment float4 fragment_gradient(
+  GradientVertexOut in [[stage_in]],
+  constant GradientUniforms& uniforms [[buffer(0)]])
+{
+  float t = 0.0;
+
+  switch (uniforms.fillMethod) {
+    case 1: // Horizontal
+      t = in.texCoord.x;
+      break;
+    case 2: // Vertical
+      t = 1.0 - in.texCoord.y; // Flip Y so gradient goes top to bottom
+      break;
+    case 3: // Diagonal 1 (top-left to bottom-right)
+      t = (in.texCoord.x + (1.0 - in.texCoord.y)) * 0.5;
+      break;
+    case 4: // Diagonal 2 (top-right to bottom-left)
+      t = ((1.0 - in.texCoord.x) + (1.0 - in.texCoord.y)) * 0.5;
+      break;
+    case 5: // Corner 1
+    case 6: // Corner 2
+    case 7: // Corner 3
+    case 8: // Corner 4
+      // Radial-like from corner
+      t = length(in.texCoord - float2(0.0, 1.0));
+      t = saturate(t / 1.414); // Normalize by diagonal length
+      break;
+    default: // None or unknown - just use first color
+      return uniforms.colorFrom;
+  }
+
+  return mix(uniforms.colorFrom, uniforms.colorTo, t);
+}
 )";
 
     NSError* error = nil;
@@ -689,6 +754,31 @@ fragment float4 fragment_phong(
     {
       myMsgContext->SendWarning() << "Metal_Context: Blending pipeline creation failed, using default";
       myBlendingPipeline = myDefaultPipeline;
+    }
+
+    // Create gradient background pipeline
+    id<MTLFunction> gradientVertexFunc = [aLibrary newFunctionWithName:@"vertex_gradient"];
+    id<MTLFunction> gradientFragmentFunc = [aLibrary newFunctionWithName:@"fragment_gradient"];
+
+    if (gradientVertexFunc != nil && gradientFragmentFunc != nil)
+    {
+      MTLRenderPipelineDescriptor* gradientPipelineDesc = [[MTLRenderPipelineDescriptor alloc] init];
+      gradientPipelineDesc.vertexFunction = gradientVertexFunc;
+      gradientPipelineDesc.fragmentFunction = gradientFragmentFunc;
+      gradientPipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+      // No depth attachment for gradient - it's a background
+      gradientPipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+
+      myGradientPipeline = [myDevice newRenderPipelineStateWithDescriptor:gradientPipelineDesc
+                                                                    error:&error];
+      if (myGradientPipeline == nil)
+      {
+        myMsgContext->SendWarning() << "Metal_Context: Gradient pipeline creation failed";
+      }
+    }
+    else
+    {
+      myMsgContext->SendWarning() << "Metal_Context: Gradient shader functions not found";
     }
 
     // Create depth-stencil state

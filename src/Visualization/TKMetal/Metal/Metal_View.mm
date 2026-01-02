@@ -245,6 +245,12 @@ void Metal_View::Redraw()
   aViewport.zfar = 1.0;
   [aRenderEncoder setViewport:aViewport];
 
+  // Draw gradient background if enabled
+  if (myBgGradientMethod != Aspect_GradientFillMethod_None)
+  {
+    drawGradientBackground((__bridge void*)aRenderEncoder, aWidth, aHeight);
+  }
+
   // Check if we have displayed structures to render
   bool aHasStructures = (NumberOfDisplayedStructures() > 0);
 
@@ -1240,6 +1246,78 @@ void Metal_View::drawTestTriangle(void* theEncoderPtr, int theWidth, int theHeig
                            atIndex:0];
 
   // Draw the triangle
+  [aRenderEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+                     vertexStart:0
+                     vertexCount:3];
+}
+
+// =======================================================================
+// function : drawGradientBackground
+// purpose  : Draw gradient background
+// =======================================================================
+void Metal_View::drawGradientBackground(void* theEncoderPtr, int theWidth, int theHeight)
+{
+  (void)theWidth;
+  (void)theHeight;
+
+  id<MTLRenderCommandEncoder> aRenderEncoder = (__bridge id<MTLRenderCommandEncoder>)theEncoderPtr;
+  if (aRenderEncoder == nil || myContext.IsNull())
+  {
+    return;
+  }
+
+  id<MTLRenderPipelineState> aPipeline = myContext->GradientPipeline();
+  if (aPipeline == nil)
+  {
+    return;
+  }
+
+  // Gradient uniform structure matching shader
+  struct GradientUniforms {
+    float colorFrom[4];
+    float colorTo[4];
+    int   fillMethod;
+    int   padding[3];
+  } aUniforms;
+
+  // Set colors
+  aUniforms.colorFrom[0] = static_cast<float>(myBgGradientFrom.Red());
+  aUniforms.colorFrom[1] = static_cast<float>(myBgGradientFrom.Green());
+  aUniforms.colorFrom[2] = static_cast<float>(myBgGradientFrom.Blue());
+  aUniforms.colorFrom[3] = 1.0f;
+
+  aUniforms.colorTo[0] = static_cast<float>(myBgGradientTo.Red());
+  aUniforms.colorTo[1] = static_cast<float>(myBgGradientTo.Green());
+  aUniforms.colorTo[2] = static_cast<float>(myBgGradientTo.Blue());
+  aUniforms.colorTo[3] = 1.0f;
+
+  // Map Aspect_GradientFillMethod to shader fillMethod
+  switch (myBgGradientMethod)
+  {
+    case Aspect_GradientFillMethod_Horizontal:  aUniforms.fillMethod = 1; break;
+    case Aspect_GradientFillMethod_Vertical:    aUniforms.fillMethod = 2; break;
+    case Aspect_GradientFillMethod_Diagonal1:   aUniforms.fillMethod = 3; break;
+    case Aspect_GradientFillMethod_Diagonal2:   aUniforms.fillMethod = 4; break;
+    case Aspect_GradientFillMethod_Corner1:     aUniforms.fillMethod = 5; break;
+    case Aspect_GradientFillMethod_Corner2:     aUniforms.fillMethod = 6; break;
+    case Aspect_GradientFillMethod_Corner3:     aUniforms.fillMethod = 7; break;
+    case Aspect_GradientFillMethod_Corner4:     aUniforms.fillMethod = 8; break;
+    case Aspect_GradientFillMethod_Elliptical:  aUniforms.fillMethod = 5; break; // fallback to corner
+    default:                                    aUniforms.fillMethod = 0; break;
+  }
+  aUniforms.padding[0] = 0;
+  aUniforms.padding[1] = 0;
+  aUniforms.padding[2] = 0;
+
+  // Set pipeline state
+  [aRenderEncoder setRenderPipelineState:aPipeline];
+
+  // Pass uniform data to fragment shader
+  [aRenderEncoder setFragmentBytes:&aUniforms
+                            length:sizeof(aUniforms)
+                           atIndex:0];
+
+  // Draw full-screen triangle (3 vertices, generated in shader)
   [aRenderEncoder drawPrimitives:MTLPrimitiveTypeTriangle
                      vertexStart:0
                      vertexCount:3];
