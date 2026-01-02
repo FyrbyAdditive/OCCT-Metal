@@ -168,8 +168,8 @@ void Metal_View::Redraw()
     return;
   }
 
-  // Create command buffer for this frame
-  id<MTLCommandBuffer> aCommandBuffer = myContext->CreateCommandBuffer();
+  // Get or create command buffer for this frame
+  id<MTLCommandBuffer> aCommandBuffer = myContext->CurrentCommandBuffer();
   if (aCommandBuffer == nil)
   {
     return;

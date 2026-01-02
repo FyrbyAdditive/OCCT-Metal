@@ -19,6 +19,7 @@ set(OCCT_TKViewerTest_EXTERNAL_LIBS
   TKMesh
   TKV3d
   TKDraw
+  TKMetal
   CSF_TclLibs
   CSF_XwLibs
   CSF_user32

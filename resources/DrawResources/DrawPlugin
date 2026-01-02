@@ -46,6 +46,7 @@ GL                 : TKOpenGlTest
 OPENGL             : TKOpenGlTest
 GLES               : TKOpenGlesTest
 OPENGLES           : TKOpenGlesTest
+METAL              : TKMetal
 D3DHOST            : TKD3DHostTest
 XSDRAW             : TKXSDRAW
 XDEDRAW            : TKXDEDRAW

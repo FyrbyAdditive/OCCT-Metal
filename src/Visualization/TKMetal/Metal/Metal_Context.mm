@@ -342,6 +342,16 @@ void Metal_Context::Commit()
 {
   if (myCurrentCmdBuffer != nil)
   {
+    // Add completion handler to signal semaphore when frame completes
+    __block dispatch_semaphore_t blockSemaphore = myFrameSemaphore;
+    [myCurrentCmdBuffer addCompletedHandler:^(id<MTLCommandBuffer> /* buffer */)
+    {
+      if (blockSemaphore != nil)
+      {
+        dispatch_semaphore_signal(blockSemaphore);
+      }
+    }];
+
     [myCurrentCmdBuffer commit];
     myCurrentCmdBuffer = nil;
   }
