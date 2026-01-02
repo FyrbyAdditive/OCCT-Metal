@@ -33,6 +33,9 @@ Metal_Workspace::Metal_Workspace(Metal_Context* theCtx, Metal_View* theView)
   myDepthStencilState(nil),
   myHighlightColor(1.0f, 1.0f, 1.0f, 1.0f),
   myIsHighlighting(false),
+  myEdgeColor(0.0f, 0.0f, 0.0f, 1.0f),
+  myIsEdgeRendering(false),
+  myIsWireframeMode(false),
   myShaderManager(nullptr),
   myClipping(nullptr),
   myShadingModel(Graphic3d_TypeOfShadingModel_Phong)
@@ -257,4 +260,77 @@ void Metal_Workspace::ApplyClippingUniforms()
                          length:sizeof(aClipUniforms)
                         atIndex:2];
   }
+}
+
+// =======================================================================
+// function : ApplyEdgeUniforms
+// purpose  : Apply edge uniforms (uses edge color instead of face color)
+// =======================================================================
+void Metal_Workspace::ApplyEdgeUniforms()
+{
+  if (myEncoder == nil)
+  {
+    return;
+  }
+
+  // Create uniform buffer with matrices and edge color
+  struct Uniforms
+  {
+    float modelViewMatrix[16];
+    float projectionMatrix[16];
+    float color[4];
+  } aUniforms;
+
+  // Copy matrices
+  for (int i = 0; i < 16; ++i)
+  {
+    aUniforms.modelViewMatrix[i] = myModelMatrix.GetData()[i];
+    aUniforms.projectionMatrix[i] = myProjectionMatrix.GetData()[i];
+  }
+
+  // Use edge color
+  aUniforms.color[0] = myEdgeColor.GetRGB().Red();
+  aUniforms.color[1] = myEdgeColor.GetRGB().Green();
+  aUniforms.color[2] = myEdgeColor.GetRGB().Blue();
+  aUniforms.color[3] = myEdgeColor.Alpha();
+
+  // Pass uniforms to shaders
+  [myEncoder setVertexBytes:&aUniforms
+                     length:sizeof(aUniforms)
+                    atIndex:1];
+
+  [myEncoder setFragmentBytes:&aUniforms
+                       length:sizeof(aUniforms)
+                      atIndex:0];
+}
+
+// =======================================================================
+// function : ApplyEdgePipelineState
+// purpose  : Apply pipeline state for edge/line rendering
+// =======================================================================
+void Metal_Workspace::ApplyEdgePipelineState()
+{
+  if (myEncoder == nil || myContext == nullptr)
+  {
+    return;
+  }
+
+  // Use line pipeline for edge rendering
+  id<MTLRenderPipelineState> aPipeline = myContext->LinePipeline();
+  if (aPipeline != nil && aPipeline != myCurrentPipeline)
+  {
+    [myEncoder setRenderPipelineState:aPipeline];
+    myCurrentPipeline = aPipeline;
+  }
+
+  // Apply depth-stencil state
+  id<MTLDepthStencilState> aDepthState = myContext->DefaultDepthStencilState();
+  if (aDepthState != nil && aDepthState != myDepthStencilState)
+  {
+    [myEncoder setDepthStencilState:aDepthState];
+    myDepthStencilState = aDepthState;
+  }
+
+  // Disable culling for edge rendering (edges should be visible from both sides)
+  [myEncoder setCullMode:MTLCullModeNone];
 }

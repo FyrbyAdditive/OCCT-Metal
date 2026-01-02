@@ -53,6 +53,9 @@ public:
   //! Render the primitive array.
   Standard_EXPORT void Render(Metal_Workspace* theWorkspace) const;
 
+  //! Render edges of the primitive array (for triangle primitives, renders as lines).
+  Standard_EXPORT void RenderEdges(Metal_Workspace* theWorkspace) const;
+
   //! Return true if resources are initialized.
   bool IsInitialized() const { return myIsInitialized; }
 

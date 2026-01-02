@@ -133,6 +133,30 @@ public:
   //! Apply clipping uniforms to encoder.
   Standard_EXPORT void ApplyClippingUniforms();
 
+  //! Set edge rendering mode.
+  void SetEdgeRendering(bool theValue) { myIsEdgeRendering = theValue; }
+
+  //! Return true if currently rendering edges.
+  bool IsEdgeRendering() const { return myIsEdgeRendering; }
+
+  //! Set edge color for rendering.
+  void SetEdgeColor(const Quantity_ColorRGBA& theColor) { myEdgeColor = theColor; }
+
+  //! Return edge color.
+  const Quantity_ColorRGBA& EdgeColor() const { return myEdgeColor; }
+
+  //! Apply edge uniforms (uses edge color instead of face color).
+  Standard_EXPORT void ApplyEdgeUniforms();
+
+  //! Set wireframe rendering mode (triangles rendered as lines).
+  void SetWireframeMode(bool theValue) { myIsWireframeMode = theValue; }
+
+  //! Return true if wireframe mode is active.
+  bool IsWireframeMode() const { return myIsWireframeMode; }
+
+  //! Apply pipeline state for edge/line rendering.
+  Standard_EXPORT void ApplyEdgePipelineState();
+
 protected:
 
   Metal_Context* myContext;      //!< Metal context
@@ -153,6 +177,10 @@ protected:
   NCollection_Mat4<float>        myProjectionMatrix; //!< projection matrix
   Quantity_ColorRGBA             myHighlightColor;   //!< highlight color
   bool                           myIsHighlighting;   //!< highlighting mode flag
+
+  Quantity_ColorRGBA             myEdgeColor;        //!< edge color for edge rendering
+  bool                           myIsEdgeRendering;  //!< edge rendering mode flag
+  bool                           myIsWireframeMode;  //!< wireframe mode flag
 
   Metal_ShaderManager*           myShaderManager;    //!< shader manager
   Metal_Clipping*                myClipping;         //!< clipping manager

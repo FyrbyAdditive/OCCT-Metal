@@ -124,6 +124,12 @@ public: //! @name Device and command queue access
   //! Return default depth-stencil state.
   id<MTLDepthStencilState> DefaultDepthStencilState() const { return myDefaultDepthStencilState; }
 
+  //! Return line/edge render pipeline state.
+  id<MTLRenderPipelineState> LinePipeline() const { return myLinePipeline; }
+
+  //! Return wireframe render pipeline state (triangles as lines).
+  id<MTLRenderPipelineState> WireframePipeline() const { return myWireframePipeline; }
+
   //! Initialize default shaders and pipeline.
   Standard_EXPORT bool InitDefaultShaders();
 #endif
@@ -238,6 +244,8 @@ private:
   id<MTLLibrary>             myDefaultLibrary;           //!< Default shader library
   id<MTLCommandBuffer>       myCurrentCmdBuffer;         //!< Current command buffer
   id<MTLRenderPipelineState> myDefaultPipeline;          //!< Default render pipeline
+  id<MTLRenderPipelineState> myLinePipeline;             //!< Line/edge render pipeline
+  id<MTLRenderPipelineState> myWireframePipeline;        //!< Wireframe render pipeline
   id<MTLDepthStencilState>   myDefaultDepthStencilState; //!< Default depth-stencil state
   dispatch_semaphore_t       myFrameSemaphore;           //!< Semaphore for triple-buffering
 #else
@@ -246,6 +254,8 @@ private:
   void*                myDefaultLibrary;
   void*                myCurrentCmdBuffer;
   void*                myDefaultPipeline;
+  void*                myLinePipeline;
+  void*                myWireframePipeline;
   void*                myDefaultDepthStencilState;
   void*                myFrameSemaphore;
 #endif

@@ -39,6 +39,8 @@ Metal_Context::Metal_Context(const occ::handle<Metal_Caps>& theCaps)
   myDefaultLibrary(nil),
   myCurrentCmdBuffer(nil),
   myDefaultPipeline(nil),
+  myLinePipeline(nil),
+  myWireframePipeline(nil),
   myDefaultDepthStencilState(nil),
   myFrameSemaphore(nil),
   myCaps(theCaps),
@@ -111,6 +113,8 @@ void Metal_Context::forcedRelease()
 
   myCurrentCmdBuffer = nil;
   myDefaultPipeline = nil;
+  myLinePipeline = nil;
+  myWireframePipeline = nil;
   myDefaultDepthStencilState = nil;
   myDefaultLibrary = nil;
   myCommandQueue = nil;
@@ -652,6 +656,27 @@ fragment float4 fragment_phong(
       return false;
     }
 
+    // Create line pipeline (same shaders, but will use MTLPrimitiveTypeLine)
+    // The pipeline itself is the same, but we create a separate one for clarity
+    // and potential future line-specific shader modifications
+    myLinePipeline = [myDevice newRenderPipelineStateWithDescriptor:pipelineDesc
+                                                              error:&error];
+    if (myLinePipeline == nil)
+    {
+      myMsgContext->SendWarning() << "Metal_Context: Line pipeline creation failed, using default";
+      myLinePipeline = myDefaultPipeline;
+    }
+
+    // Create wireframe pipeline (for rendering triangles as lines)
+    // Same as default pipeline - wireframe mode is controlled via encoder settings
+    myWireframePipeline = [myDevice newRenderPipelineStateWithDescriptor:pipelineDesc
+                                                                   error:&error];
+    if (myWireframePipeline == nil)
+    {
+      myMsgContext->SendWarning() << "Metal_Context: Wireframe pipeline creation failed, using default";
+      myWireframePipeline = myDefaultPipeline;
+    }
+
     // Create depth-stencil state
     MTLDepthStencilDescriptor* depthDesc = [[MTLDepthStencilDescriptor alloc] init];
     depthDesc.depthCompareFunction = MTLCompareFunctionLess;
@@ -664,7 +689,7 @@ fragment float4 fragment_phong(
       return false;
     }
 
-    myMsgContext->SendInfo() << "Metal_Context: Default shaders initialized";
+    myMsgContext->SendInfo() << "Metal_Context: Default shaders initialized (with edge/wireframe support)";
     return true;
   }
 }

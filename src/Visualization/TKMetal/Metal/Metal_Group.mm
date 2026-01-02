@@ -16,6 +16,7 @@
 #include <Metal_Context.hxx>
 #include <Metal_Workspace.hxx>
 #include <Metal_PrimitiveArray.hxx>
+#include <Aspect_InteriorStyle.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_Group, Graphic3d_Group)
 
@@ -197,21 +198,81 @@ void Metal_Group::Render(Metal_Workspace* theWorkspace) const
     theWorkspace->SetAspect(myAspect);
   }
 
+  // Determine rendering mode from aspect
+  bool aDrawFaces = true;
+  bool aDrawEdges = false;
+
+  if (!myAspect.IsNull())
+  {
+    // Check interior style for wireframe mode
+    Aspect_InteriorStyle aStyle = myAspect->InteriorStyle();
+    if (aStyle == Aspect_IS_EMPTY)
+    {
+      aDrawFaces = false;
+      aDrawEdges = myAspect->ToDrawEdges();
+    }
+    else if (aStyle == Aspect_IS_HOLLOW)
+    {
+      // Hollow = wireframe, show only edges
+      aDrawFaces = false;
+      aDrawEdges = true;
+    }
+    else
+    {
+      // Solid modes - optionally draw edges on top
+      aDrawEdges = myAspect->ToDrawEdges();
+    }
+  }
+
   // Initialize and render all primitives
   Metal_Context* aCtx = theWorkspace->Context();
-  for (NCollection_List<Metal_PrimitiveArray*>::Iterator aPrimIter(myPrimitives);
-       aPrimIter.More(); aPrimIter.Next())
+
+  // First pass: render faces (if enabled)
+  if (aDrawFaces)
   {
-    Metal_PrimitiveArray* aPrimArray = aPrimIter.Value();
-    if (aPrimArray != nullptr)
+    for (NCollection_List<Metal_PrimitiveArray*>::Iterator aPrimIter(myPrimitives);
+         aPrimIter.More(); aPrimIter.Next())
     {
-      // Lazy initialization
-      if (!aPrimArray->IsInitialized())
+      Metal_PrimitiveArray* aPrimArray = aPrimIter.Value();
+      if (aPrimArray != nullptr)
       {
-        aPrimArray->Init(aCtx);
+        // Lazy initialization
+        if (!aPrimArray->IsInitialized())
+        {
+          aPrimArray->Init(aCtx);
+        }
+        aPrimArray->Render(theWorkspace);
       }
-      aPrimArray->Render(theWorkspace);
     }
+  }
+
+  // Second pass: render edges (if enabled)
+  if (aDrawEdges && !myAspect.IsNull())
+  {
+    // Set edge rendering mode
+    theWorkspace->SetEdgeRendering(true);
+    theWorkspace->SetEdgeColor(myAspect->EdgeColorRGBA());
+    theWorkspace->ApplyEdgePipelineState();
+    theWorkspace->ApplyEdgeUniforms();
+
+    for (NCollection_List<Metal_PrimitiveArray*>::Iterator aPrimIter(myPrimitives);
+         aPrimIter.More(); aPrimIter.Next())
+    {
+      Metal_PrimitiveArray* aPrimArray = aPrimIter.Value();
+      if (aPrimArray != nullptr)
+      {
+        // Lazy initialization
+        if (!aPrimArray->IsInitialized())
+        {
+          aPrimArray->Init(aCtx);
+        }
+        aPrimArray->RenderEdges(theWorkspace);
+      }
+    }
+
+    // Restore normal rendering mode
+    theWorkspace->SetEdgeRendering(false);
+    theWorkspace->ApplyPipelineState();
   }
 }
 

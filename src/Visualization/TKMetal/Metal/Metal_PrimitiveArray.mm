@@ -252,6 +252,147 @@ void Metal_PrimitiveArray::Render(Metal_Workspace* theWorkspace) const
 }
 
 // =======================================================================
+// function : RenderEdges
+// purpose  : Render edges of the primitive array
+// =======================================================================
+void Metal_PrimitiveArray::RenderEdges(Metal_Workspace* theWorkspace) const
+{
+  if (!myIsInitialized || theWorkspace == nullptr)
+  {
+    return;
+  }
+
+  id<MTLRenderCommandEncoder> anEncoder = theWorkspace->ActiveEncoder();
+  if (anEncoder == nil)
+  {
+    return;
+  }
+
+  // Bind vertex buffers (same as regular render)
+  int aBufferIdx = 0;
+  if (!myPositionVbo.IsNull() && myPositionVbo->IsValid())
+  {
+    [anEncoder setVertexBuffer:myPositionVbo->Buffer()
+                        offset:0
+                       atIndex:aBufferIdx++];
+  }
+
+  // For edge rendering, we handle different primitive types differently
+  switch (myType)
+  {
+    case Graphic3d_TOPA_TRIANGLES:
+    {
+      // For triangles, we render the edges as lines
+      // Each triangle has 3 edges, so we draw 3 line segments per triangle
+      // Using the same vertices but with MTLPrimitiveTypeLine
+      if (!myIndexBuffer.IsNull() && myIndexBuffer->IsValid())
+      {
+        // For indexed triangles, we need to extract edges
+        // For now, render as line strip approximation (simplified)
+        // TODO: Generate proper edge indices for unique edges
+        MTLIndexType anIndexType = myIndexBuffer->MetalIndexType();
+
+        // Draw triangles in wireframe mode by using triangle fill mode
+        // Note: Metal doesn't have a direct wireframe mode like OpenGL,
+        // but we can use setTriangleFillMode for this purpose
+        [anEncoder setTriangleFillMode:MTLTriangleFillModeLines];
+
+        [anEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                              indexCount:static_cast<NSUInteger>(myNbIndices)
+                               indexType:anIndexType
+                             indexBuffer:myIndexBuffer->Buffer()
+                       indexBufferOffset:0];
+
+        // Restore fill mode
+        [anEncoder setTriangleFillMode:MTLTriangleFillModeFill];
+      }
+      else
+      {
+        // Non-indexed triangles
+        [anEncoder setTriangleFillMode:MTLTriangleFillModeLines];
+
+        [anEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+                      vertexStart:0
+                      vertexCount:static_cast<NSUInteger>(myNbVertices)];
+
+        [anEncoder setTriangleFillMode:MTLTriangleFillModeFill];
+      }
+      break;
+    }
+    case Graphic3d_TOPA_TRIANGLESTRIPS:
+    case Graphic3d_TOPA_TRIANGLEFANS:
+    {
+      // Use wireframe mode for triangle strips/fans
+      [anEncoder setTriangleFillMode:MTLTriangleFillModeLines];
+
+      if (!myIndexBuffer.IsNull() && myIndexBuffer->IsValid())
+      {
+        MTLIndexType anIndexType = myIndexBuffer->MetalIndexType();
+        [anEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangleStrip
+                              indexCount:static_cast<NSUInteger>(myNbIndices)
+                               indexType:anIndexType
+                             indexBuffer:myIndexBuffer->Buffer()
+                       indexBufferOffset:0];
+      }
+      else
+      {
+        [anEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip
+                      vertexStart:0
+                      vertexCount:static_cast<NSUInteger>(myNbVertices)];
+      }
+
+      [anEncoder setTriangleFillMode:MTLTriangleFillModeFill];
+      break;
+    }
+    case Graphic3d_TOPA_SEGMENTS:
+    case Graphic3d_TOPA_POLYLINES:
+    {
+      // Lines are already edges, just render them normally
+      MTLPrimitiveType aPrimType = (myType == Graphic3d_TOPA_SEGMENTS)
+                                 ? MTLPrimitiveTypeLine
+                                 : MTLPrimitiveTypeLineStrip;
+
+      if (!myIndexBuffer.IsNull() && myIndexBuffer->IsValid())
+      {
+        MTLIndexType anIndexType = myIndexBuffer->MetalIndexType();
+        [anEncoder drawIndexedPrimitives:aPrimType
+                              indexCount:static_cast<NSUInteger>(myNbIndices)
+                               indexType:anIndexType
+                             indexBuffer:myIndexBuffer->Buffer()
+                       indexBufferOffset:0];
+      }
+      else
+      {
+        [anEncoder drawPrimitives:aPrimType
+                      vertexStart:0
+                      vertexCount:static_cast<NSUInteger>(myNbVertices)];
+      }
+      break;
+    }
+    default:
+      // For other types, use wireframe mode
+      [anEncoder setTriangleFillMode:MTLTriangleFillModeLines];
+      if (!myIndexBuffer.IsNull() && myIndexBuffer->IsValid())
+      {
+        MTLIndexType anIndexType = myIndexBuffer->MetalIndexType();
+        [anEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                              indexCount:static_cast<NSUInteger>(myNbIndices)
+                               indexType:anIndexType
+                             indexBuffer:myIndexBuffer->Buffer()
+                       indexBufferOffset:0];
+      }
+      else
+      {
+        [anEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+                      vertexStart:0
+                      vertexCount:static_cast<NSUInteger>(myNbVertices)];
+      }
+      [anEncoder setTriangleFillMode:MTLTriangleFillModeFill];
+      break;
+  }
+}
+
+// =======================================================================
 // function : MetalPrimitiveType
 // purpose  : Return Metal primitive type
 // =======================================================================
