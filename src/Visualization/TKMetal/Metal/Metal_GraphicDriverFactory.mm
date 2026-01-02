@@ -41,7 +41,7 @@ namespace
 // purpose  : Constructor
 // =======================================================================
 Metal_GraphicDriverFactory::Metal_GraphicDriverFactory()
-: Graphic3d_GraphicDriverFactory("TKMetal"),
+: Graphic3d_GraphicDriverFactory("Metal"),
   myDefaultCaps(new Metal_Caps())
 {
   //

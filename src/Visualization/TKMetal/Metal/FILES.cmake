@@ -6,6 +6,8 @@ set(OCCT_Metal_FILES
   Metal_Buffer.mm
   Metal_Caps.hxx
   Metal_Caps.mm
+  Metal_Clipping.hxx
+  Metal_Clipping.mm
   Metal_Context.hxx
   Metal_Context.mm
   Metal_GraphicDriver.hxx
@@ -22,6 +24,8 @@ set(OCCT_Metal_FILES
   Metal_Resource.mm
   Metal_Sampler.hxx
   Metal_Sampler.mm
+  Metal_ShaderManager.hxx
+  Metal_ShaderManager.mm
   Metal_Structure.hxx
   Metal_Structure.mm
   Metal_Texture.hxx

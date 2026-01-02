@@ -16,6 +16,9 @@
 
 #include <Standard_Transient.hxx>
 #include <Graphic3d_Aspects.hxx>
+#include <Graphic3d_LightSet.hxx>
+#include <Graphic3d_TypeOfShadingModel.hxx>
+#include <Graphic3d_SequenceOfHClipPlane.hxx>
 #include <NCollection_Mat4.hxx>
 #include <Quantity_ColorRGBA.hxx>
 
@@ -27,6 +30,8 @@
 
 class Metal_Context;
 class Metal_View;
+class Metal_ShaderManager;
+class Metal_Clipping;
 
 //! Workspace for Metal rendering state management.
 //! Holds current render encoder and manages shader state.
@@ -98,6 +103,36 @@ public:
   //! Set highlighting mode.
   void SetHighlighting(bool theValue) { myIsHighlighting = theValue; }
 
+  //! Return shader manager.
+  Metal_ShaderManager* ShaderManager() const { return myShaderManager; }
+
+  //! Set shader manager.
+  void SetShaderManager(Metal_ShaderManager* theManager) { myShaderManager = theManager; }
+
+  //! Return clipping manager.
+  Metal_Clipping* Clipping() const { return myClipping; }
+
+  //! Set clipping manager.
+  void SetClipping(Metal_Clipping* theClipping) { myClipping = theClipping; }
+
+  //! Update light sources for rendering.
+  Standard_EXPORT void SetLightSources(const occ::handle<Graphic3d_LightSet>& theLights);
+
+  //! Update clipping planes for rendering.
+  Standard_EXPORT void SetClippingPlanes(const Graphic3d_SequenceOfHClipPlane& thePlanes);
+
+  //! Return current shading model.
+  Graphic3d_TypeOfShadingModel ShadingModel() const { return myShadingModel; }
+
+  //! Set shading model.
+  void SetShadingModel(Graphic3d_TypeOfShadingModel theModel) { myShadingModel = theModel; }
+
+  //! Apply lighting uniforms to encoder.
+  Standard_EXPORT void ApplyLightingUniforms();
+
+  //! Apply clipping uniforms to encoder.
+  Standard_EXPORT void ApplyClippingUniforms();
+
 protected:
 
   Metal_Context* myContext;      //!< Metal context
@@ -118,6 +153,11 @@ protected:
   NCollection_Mat4<float>        myProjectionMatrix; //!< projection matrix
   Quantity_ColorRGBA             myHighlightColor;   //!< highlight color
   bool                           myIsHighlighting;   //!< highlighting mode flag
+
+  Metal_ShaderManager*           myShaderManager;    //!< shader manager
+  Metal_Clipping*                myClipping;         //!< clipping manager
+  Graphic3d_TypeOfShadingModel   myShadingModel;     //!< current shading model
+  occ::handle<Graphic3d_LightSet> myLightSources;    //!< current light sources
 };
 
 #endif // Metal_Workspace_HeaderFile

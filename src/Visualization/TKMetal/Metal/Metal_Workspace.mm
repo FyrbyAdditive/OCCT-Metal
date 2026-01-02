@@ -16,6 +16,8 @@
 #include <Metal_Workspace.hxx>
 #include <Metal_Context.hxx>
 #include <Metal_View.hxx>
+#include <Metal_ShaderManager.hxx>
+#include <Metal_Clipping.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_Workspace, Standard_Transient)
 
@@ -30,7 +32,10 @@ Metal_Workspace::Metal_Workspace(Metal_Context* theCtx, Metal_View* theView)
   myCurrentPipeline(nil),
   myDepthStencilState(nil),
   myHighlightColor(1.0f, 1.0f, 1.0f, 1.0f),
-  myIsHighlighting(false)
+  myIsHighlighting(false),
+  myShaderManager(nullptr),
+  myClipping(nullptr),
+  myShadingModel(Graphic3d_TypeOfShadingModel_Phong)
 {
   myModelMatrix.InitIdentity();
   myProjectionMatrix.InitIdentity();
@@ -171,4 +176,85 @@ void Metal_Workspace::ApplyUniforms()
   [myEncoder setFragmentBytes:&aUniforms
                        length:sizeof(aUniforms)
                       atIndex:0];
+}
+
+// =======================================================================
+// function : SetLightSources
+// purpose  : Update light sources for rendering
+// =======================================================================
+void Metal_Workspace::SetLightSources(const occ::handle<Graphic3d_LightSet>& theLights)
+{
+  myLightSources = theLights;
+
+  // Update shader manager if available
+  if (myShaderManager != nullptr)
+  {
+    myShaderManager->UpdateLightSources(theLights);
+  }
+}
+
+// =======================================================================
+// function : SetClippingPlanes
+// purpose  : Update clipping planes for rendering
+// =======================================================================
+void Metal_Workspace::SetClippingPlanes(const Graphic3d_SequenceOfHClipPlane& thePlanes)
+{
+  // Update clipping manager if available
+  if (myClipping != nullptr)
+  {
+    myClipping->Reset();
+    myClipping->Add(myContext, thePlanes);
+  }
+
+  // Update shader manager if available
+  if (myShaderManager != nullptr)
+  {
+    myShaderManager->UpdateClippingPlanes(thePlanes);
+  }
+}
+
+// =======================================================================
+// function : ApplyLightingUniforms
+// purpose  : Apply lighting uniforms to encoder
+// =======================================================================
+void Metal_Workspace::ApplyLightingUniforms()
+{
+  if (myEncoder == nil || myShaderManager == nullptr)
+  {
+    return;
+  }
+
+  const Metal_LightUniforms& aLightUniforms = myShaderManager->LightUniforms();
+
+  // Pass lighting uniforms to fragment shader at buffer index 1
+  [myEncoder setFragmentBytes:&aLightUniforms
+                       length:sizeof(aLightUniforms)
+                      atIndex:1];
+
+  // Also pass to vertex shader for Gouraud shading
+  [myEncoder setVertexBytes:&aLightUniforms
+                     length:sizeof(aLightUniforms)
+                    atIndex:3];
+}
+
+// =======================================================================
+// function : ApplyClippingUniforms
+// purpose  : Apply clipping uniforms to encoder
+// =======================================================================
+void Metal_Workspace::ApplyClippingUniforms()
+{
+  if (myEncoder == nil || myShaderManager == nullptr)
+  {
+    return;
+  }
+
+  const Metal_ClipPlaneUniforms& aClipUniforms = myShaderManager->ClipPlaneUniforms();
+
+  if (aClipUniforms.PlaneCount > 0)
+  {
+    // Pass clipping uniforms to fragment shader at buffer index 2
+    [myEncoder setFragmentBytes:&aClipUniforms
+                         length:sizeof(aClipUniforms)
+                        atIndex:2];
+  }
 }
