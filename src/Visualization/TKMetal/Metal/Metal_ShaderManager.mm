@@ -289,7 +289,11 @@ Graphic3d_TypeOfShadingModel Metal_ShaderManager::ChooseFaceShadingModel(
       return theHasNodalNormals ? aModel : Graphic3d_TypeOfShadingModel_PhongFacet;
     case Graphic3d_TypeOfShadingModel_Pbr:
     case Graphic3d_TypeOfShadingModel_PbrFacet:
-      // Fallback PBR to Phong for now
+      // PBR shading requires:
+      // - Metallic/roughness material uniforms
+      // - IBL (Image-Based Lighting) environment maps
+      // - Fresnel/GGX BRDF calculations in shader
+      // Currently falls back to Phong until PBR shaders are implemented.
       return theHasNodalNormals ? Graphic3d_TypeOfShadingModel_Phong
                                 : Graphic3d_TypeOfShadingModel_PhongFacet;
   }
@@ -318,6 +322,7 @@ Graphic3d_TypeOfShadingModel Metal_ShaderManager::ChooseLineShadingModel(
       return theHasNodalNormals ? aModel : Graphic3d_TypeOfShadingModel_Unlit;
     case Graphic3d_TypeOfShadingModel_Pbr:
     case Graphic3d_TypeOfShadingModel_PbrFacet:
+      // PBR line shading not implemented - fall back to Phong/Unlit
       return theHasNodalNormals ? Graphic3d_TypeOfShadingModel_Phong
                                 : Graphic3d_TypeOfShadingModel_Unlit;
   }
