@@ -708,7 +708,9 @@ void Metal_LayerList::renderTransparent(const occ::handle<Metal_Workspace>& theW
 
   theWorkspace->SetRenderFilter((Metal_RenderFilter)(aPrevFilter | Metal_RenderFilter_OpaqueOnly));
 
-  // Handle OIT compositing if FBOs are provided (for future enhancement)
+  // OIT compositing is handled by Metal_OIT class when enabled.
+  // These FBO params are for API compatibility with OpenGL backend.
+  // See Metal_OIT::EndAccumulationAndComposite() for compositing.
   (void)theReadDrawFbo;
   (void)theOitAccumFbo;
 }
