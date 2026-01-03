@@ -24,6 +24,7 @@
 #include <Metal_Caps.hxx>
 #include <Metal_Context.hxx>
 #include <Metal_FrameBuffer.hxx>
+#include <Metal_ShadowMap.hxx>
 #include <Metal_Texture.hxx>
 #include <Metal_Window.hxx>
 
@@ -268,6 +269,9 @@ protected:
   // IBL (Image-Based Lighting)
   occ::handle<Metal_PBREnvironment> myPBREnvironment;  //!< PBR environment for IBL
   bool                              myIBLEnabled;      //!< IBL enabled flag
+
+  // Shadow mapping
+  NCollection_Sequence<occ::handle<Metal_ShadowMap>> myShadowMaps; //!< Shadow maps for lights
 
   // Layer management
   NCollection_List<occ::handle<Graphic3d_Layer>> myLayers; //!< Z-layers (ordered list)

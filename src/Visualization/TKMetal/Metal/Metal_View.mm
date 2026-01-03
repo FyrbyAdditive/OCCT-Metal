@@ -469,9 +469,88 @@ bool Metal_View::BufferDump(Image_PixMap& theImage,
 bool Metal_View::ShadowMapDump(Image_PixMap& theImage,
                                const TCollection_AsciiString& theLightName)
 {
-  (void)theImage;
-  (void)theLightName;
-  // Not implemented in Phase 1
+  if (myContext.IsNull() || !myContext->IsValid())
+  {
+    return false;
+  }
+
+  // Find shadow map by light name
+  for (int aShadowIter = 1; aShadowIter <= myShadowMaps.Size(); ++aShadowIter)
+  {
+    const occ::handle<Metal_ShadowMap>& aShadow = myShadowMaps.Value(aShadowIter);
+    if (aShadow.IsNull() || !aShadow->IsValid())
+    {
+      continue;
+    }
+
+    const occ::handle<Graphic3d_CLight>& aLight = aShadow->LightSource();
+    if (aLight.IsNull())
+    {
+      continue;
+    }
+
+    if (aLight->Name() == theLightName)
+    {
+      // Found matching shadow map - dump it
+      int aSize = aShadow->Size();
+
+      // Initialize image if size doesn't match
+      if ((int)theImage.Width() != aSize || (int)theImage.Height() != aSize)
+      {
+        theImage.InitZero(Image_Format_GrayF, aSize, aSize);
+      }
+
+      id<MTLTexture> aDepthTex = aShadow->DepthTexture();
+      if (aDepthTex == nil)
+      {
+        return false;
+      }
+
+      // Create a buffer for reading back texture data
+      id<MTLDevice> aDevice = myContext->Device();
+      NSUInteger aBytesPerRow = aSize * sizeof(float);
+      NSUInteger aBufferSize = aBytesPerRow * aSize;
+
+      id<MTLBuffer> aReadbackBuffer = [aDevice newBufferWithLength:aBufferSize
+                                                           options:MTLResourceStorageModeShared];
+      if (aReadbackBuffer == nil)
+      {
+        return false;
+      }
+
+      // Create blit encoder to copy texture to buffer
+      id<MTLCommandBuffer> aCmdBuf = myContext->CreateCommandBuffer();
+      id<MTLBlitCommandEncoder> aBlitEncoder = [aCmdBuf blitCommandEncoder];
+
+      [aBlitEncoder copyFromTexture:aDepthTex
+                        sourceSlice:0
+                        sourceLevel:0
+                       sourceOrigin:MTLOriginMake(0, 0, 0)
+                         sourceSize:MTLSizeMake(aSize, aSize, 1)
+                           toBuffer:aReadbackBuffer
+                  destinationOffset:0
+             destinationBytesPerRow:aBytesPerRow
+           destinationBytesPerImage:aBufferSize];
+
+      [aBlitEncoder endEncoding];
+      [aCmdBuf commit];
+      [aCmdBuf waitUntilCompleted];
+
+      // Copy data from buffer to image
+      const float* aSrcData = (const float*)[aReadbackBuffer contents];
+      for (int aRow = 0; aRow < aSize; ++aRow)
+      {
+        // Flip vertically to match image coordinate system
+        float* aDstRow = (float*)theImage.ChangeRow(aSize - 1 - aRow);
+        const float* aSrcRow = aSrcData + aRow * aSize;
+        memcpy(aDstRow, aSrcRow, aBytesPerRow);
+      }
+
+      return true;
+    }
+  }
+
+  // Shadow map not found for the specified light
   return false;
 }
 
