@@ -21,6 +21,8 @@ set(OCCT_Metal_FILES
   Metal_Font.mm
   Metal_FrameBuffer.hxx
   Metal_FrameBuffer.mm
+  Metal_FrameStats.hxx
+  Metal_FrameStats.mm
   Metal_GraphicDriver.hxx
   Metal_GraphicDriver.mm
   Metal_GraphicDriverFactory.hxx
