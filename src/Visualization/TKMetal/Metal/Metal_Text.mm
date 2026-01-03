@@ -331,53 +331,48 @@ void Metal_Text::Render(Metal_Workspace* theWorkspace) const
     aHinting = theWorkspace->View()->RenderingParams().FontHinting;
   }
 
-  render(aCtx, *anAspect, aColorText, aColorSubs, aResolution, aHinting);
+  render(theWorkspace, *anAspect, aColorText, aColorSubs, aResolution, aHinting);
 }
 
 // =======================================================================
 // function : Render
-// purpose  : Render with explicit aspect
+// purpose  : Render with explicit aspect (no workspace - limited functionality)
 // =======================================================================
 void Metal_Text::Render(Metal_Context* theCtx,
                         const Graphic3d_Aspects& theAspect,
                         unsigned int theResolution,
                         Font_Hinting theFontHinting) const
 {
-  if (theCtx == nullptr || myText.IsNull())
-  {
-    return;
-  }
-
-  const Quantity_ColorRGBA& aTextColor = theAspect.ColorRGBA();
-  NCollection_Vec4<float> aColorText(
-    (float)aTextColor.GetRGB().Red(),
-    (float)aTextColor.GetRGB().Green(),
-    (float)aTextColor.GetRGB().Blue(),
-    aTextColor.Alpha()
-  );
-
-  const Quantity_ColorRGBA& aSubsColor = theAspect.ColorSubTitleRGBA();
-  NCollection_Vec4<float> aColorSubs(
-    (float)aSubsColor.GetRGB().Red(),
-    (float)aSubsColor.GetRGB().Green(),
-    (float)aSubsColor.GetRGB().Blue(),
-    aSubsColor.Alpha()
-  );
-
-  render(theCtx, theAspect, aColorText, aColorSubs, theResolution, theFontHinting);
+  // This variant cannot render because it has no access to the render encoder.
+  // Use the Metal_Workspace version instead.
+  (void)theCtx;
+  (void)theAspect;
+  (void)theResolution;
+  (void)theFontHinting;
 }
 
 // =======================================================================
 // function : render
 // purpose  : Render implementation
 // =======================================================================
-void Metal_Text::render(Metal_Context* theCtx,
+void Metal_Text::render(Metal_Workspace* theWorkspace,
                          const Graphic3d_Aspects& theAspect,
                          const NCollection_Vec4<float>& theColorText,
                          const NCollection_Vec4<float>& theColorSubs,
                          unsigned int theResolution,
                          Font_Hinting theFontHinting) const
 {
+  if (theWorkspace == nullptr)
+  {
+    return;
+  }
+
+  Metal_Context* theCtx = theWorkspace->Context();
+  if (theCtx == nullptr)
+  {
+    return;
+  }
+
   if (myText->Text().IsEmpty() && myText->TextFormatter().IsNull())
   {
     return;
@@ -618,23 +613,22 @@ void Metal_Text::render(Metal_Context* theCtx,
   {
     case Aspect_TODT_SUBTITLE:
     {
-      drawRect(theCtx, theAspect, theColorSubs);
+      drawRect(theWorkspace, theAspect, theColorSubs);
       break;
     }
     case Aspect_TODT_DEKALE:
     {
       // Draw shadow copies in 4 directions (3D style effect)
-      // Using subtitle color for the shadow
-      drawTextWithOffset(theCtx, theAspect, theColorSubs, NCollection_Vec3<float>(+1.0f, +1.0f, 0.0f));
-      drawTextWithOffset(theCtx, theAspect, theColorSubs, NCollection_Vec3<float>(-1.0f, -1.0f, 0.0f));
-      drawTextWithOffset(theCtx, theAspect, theColorSubs, NCollection_Vec3<float>(-1.0f, +1.0f, 0.0f));
-      drawTextWithOffset(theCtx, theAspect, theColorSubs, NCollection_Vec3<float>(+1.0f, -1.0f, 0.0f));
+      drawTextWithOffset(theWorkspace, theAspect, theColorSubs, NCollection_Vec3<float>(+1.0f, +1.0f, 0.0f));
+      drawTextWithOffset(theWorkspace, theAspect, theColorSubs, NCollection_Vec3<float>(-1.0f, -1.0f, 0.0f));
+      drawTextWithOffset(theWorkspace, theAspect, theColorSubs, NCollection_Vec3<float>(-1.0f, +1.0f, 0.0f));
+      drawTextWithOffset(theWorkspace, theAspect, theColorSubs, NCollection_Vec3<float>(+1.0f, -1.0f, 0.0f));
       break;
     }
     case Aspect_TODT_SHADOW:
     {
       // Draw shadow copy at bottom-right
-      drawTextWithOffset(theCtx, theAspect, theColorSubs, NCollection_Vec3<float>(+1.0f, -1.0f, 0.0f));
+      drawTextWithOffset(theWorkspace, theAspect, theColorSubs, NCollection_Vec3<float>(+1.0f, -1.0f, 0.0f));
       break;
     }
     case Aspect_TODT_BLEND:
@@ -646,50 +640,295 @@ void Metal_Text::render(Metal_Context* theCtx,
 
   // Draw main text (reset offset to zero)
   myTextOffset = NCollection_Vec3<float>(0.0f, 0.0f, 0.0f);
-  setupMatrix(theCtx, theAspect, myTextOffset);
-  drawText(theCtx, theAspect);
+  setupMatrix(theWorkspace, theAspect, myTextOffset);
+  drawText(theWorkspace, theAspect, theColorText);
 }
 
 // =======================================================================
 // function : drawText
-// purpose  : Draw text quads
+// purpose  : Draw text quads using render encoder
 // =======================================================================
-void Metal_Text::drawText(Metal_Context* theCtx,
-                           const Graphic3d_Aspects& theAspect) const
+void Metal_Text::drawText(Metal_Workspace* theWorkspace,
+                           const Graphic3d_Aspects& theAspect,
+                           const NCollection_Vec4<float>& theColor) const
 {
   (void)theAspect;
 
-  if (theCtx == nullptr || myVertsBuffers.IsEmpty())
+  if (theWorkspace == nullptr || myVertsBuffers.IsEmpty())
   {
     return;
   }
 
-  // TODO: This method needs refactoring to get encoder from Metal_Workspace
-  // For now, text rendering through this code path is not implemented
-  // The main Render(Metal_Workspace*) method should be used instead
-  (void)theCtx;
+  id<MTLRenderCommandEncoder> anEncoder = theWorkspace->ActiveEncoder();
+  if (anEncoder == nil)
+  {
+    return;
+  }
+
+  Metal_Context* aCtx = theWorkspace->Context();
+  if (aCtx == nil)
+  {
+    return;
+  }
+
+  // Text rendering uniform structure
+  struct TextUniforms
+  {
+    float ModelViewProjection[16];
+    float Color[4];
+    float Offset[2];
+    float Scale;
+    float Padding;
+  };
+
+  // Prepare uniforms
+  TextUniforms aUniforms;
+
+  // For 2D text, create orthographic projection
+  if (myIs2D)
+  {
+    const int* aViewport = aCtx->Viewport();
+    float aWidth = static_cast<float>(aViewport[2] > 0 ? aViewport[2] : 800);
+    float aHeight = static_cast<float>(aViewport[3] > 0 ? aViewport[3] : 600);
+
+    // Orthographic projection matrix (NDC: -1 to 1)
+    // Maps (0,0)-(width,height) to (-1,-1)-(1,1) with Y flipped for Metal
+    NCollection_Mat4<float> aOrthoMat;
+    aOrthoMat.SetValue(0, 0, 2.0f / aWidth);
+    aOrthoMat.SetValue(1, 1, -2.0f / aHeight); // Flip Y for Metal
+    aOrthoMat.SetValue(2, 2, 1.0f);
+    aOrthoMat.SetValue(3, 3, 1.0f);
+    aOrthoMat.SetValue(0, 3, -1.0f);
+    aOrthoMat.SetValue(1, 3, 1.0f);
+
+    // Apply text position offset
+    const gp_Pnt& aPos = myText->Position();
+    NCollection_Mat4<float> aTranslateMat;
+    aTranslateMat.InitIdentity();
+    aTranslateMat.SetValue(0, 3, static_cast<float>(aPos.X()) + myTextOffset.x());
+    aTranslateMat.SetValue(1, 3, static_cast<float>(aPos.Y()) + myTextOffset.y());
+
+    NCollection_Mat4<float> aMVP = aOrthoMat * aTranslateMat;
+    for (int i = 0; i < 16; ++i)
+    {
+      aUniforms.ModelViewProjection[i] = aMVP.GetData()[i];
+    }
+  }
+  else
+  {
+    // 3D text - use computed matrices with scale and offset
+    NCollection_Mat4<float> aModelMat;
+    aModelMat.InitIdentity();
+
+    // Apply position
+    const gp_Pnt& aPos = myText->Position();
+    aModelMat.SetValue(0, 3, static_cast<float>(aPos.X()));
+    aModelMat.SetValue(1, 3, static_cast<float>(aPos.Y()));
+    aModelMat.SetValue(2, 3, static_cast<float>(aPos.Z()));
+
+    // Apply scale for constant screen height
+    if (myScaleHeight != 1.0f)
+    {
+      aModelMat.SetValue(0, 0, myScaleHeight);
+      aModelMat.SetValue(1, 1, myScaleHeight);
+      aModelMat.SetValue(2, 2, myScaleHeight);
+    }
+
+    // Combine with view and projection
+    NCollection_Mat4<float> aViewProj = aCtx->ProjectionState.Current() * aCtx->WorldViewState.Current();
+    NCollection_Mat4<float> aMVP = aViewProj * aModelMat;
+
+    for (int i = 0; i < 16; ++i)
+    {
+      aUniforms.ModelViewProjection[i] = aMVP.GetData()[i];
+    }
+  }
+
+  aUniforms.Color[0] = theColor.x();
+  aUniforms.Color[1] = theColor.y();
+  aUniforms.Color[2] = theColor.z();
+  aUniforms.Color[3] = theColor.w();
+  aUniforms.Offset[0] = myTextOffset.x();
+  aUniforms.Offset[1] = myTextOffset.y();
+  aUniforms.Scale = myScaleHeight;
+  aUniforms.Padding = 0.0f;
+
+  // Draw each texture batch
+  for (int i = 0; i < myVertsBuffers.Length(); ++i)
+  {
+    id<MTLBuffer> aVertsBuffer = myVertsBuffers.Value(i);
+    id<MTLBuffer> aTCrdsBuffer = myTCrdsBuffers.Value(i);
+    int aTexIndex = myTextureIndices.Value(i);
+
+    if (aVertsBuffer == nil || aTCrdsBuffer == nil)
+    {
+      continue;
+    }
+
+    // Bind vertex buffers
+    [anEncoder setVertexBuffer:aVertsBuffer offset:0 atIndex:0];
+    [anEncoder setVertexBuffer:aTCrdsBuffer offset:0 atIndex:1];
+
+    // Bind uniforms
+    [anEncoder setVertexBytes:&aUniforms length:sizeof(aUniforms) atIndex:2];
+    [anEncoder setFragmentBytes:&aUniforms length:sizeof(aUniforms) atIndex:0];
+
+    // Bind font texture
+    if (!myFont.IsNull() && aTexIndex >= 0 && aTexIndex < myFont->NbTextures())
+    {
+      const occ::handle<Metal_Texture>& aTexture = myFont->Texture(aTexIndex);
+      if (!aTexture.IsNull() && aTexture->IsValid())
+      {
+        [anEncoder setFragmentTexture:aTexture->Texture() atIndex:0];
+      }
+    }
+
+    // Draw triangles
+    NSUInteger aVertCount = [aVertsBuffer length] / (2 * sizeof(float));
+    [anEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+                  vertexStart:0
+                  vertexCount:aVertCount];
+  }
 }
 
 // =======================================================================
 // function : drawRect
-// purpose  : Draw background rectangle
+// purpose  : Draw background rectangle using render encoder
 // =======================================================================
-void Metal_Text::drawRect(Metal_Context* theCtx,
+void Metal_Text::drawRect(Metal_Workspace* theWorkspace,
                            const Graphic3d_Aspects& theAspect,
                            const NCollection_Vec4<float>& theColor) const
 {
-  // TODO: This method needs refactoring to get encoder from Metal_Workspace
-  // For now, text rect rendering through this code path is not implemented
-  (void)theCtx;
   (void)theAspect;
-  (void)theColor;
+
+  if (theWorkspace == nullptr)
+  {
+    return;
+  }
+
+  id<MTLRenderCommandEncoder> anEncoder = theWorkspace->ActiveEncoder();
+  if (anEncoder == nil)
+  {
+    return;
+  }
+
+  Metal_Context* aCtx = theWorkspace->Context();
+  if (aCtx == nil)
+  {
+    return;
+  }
+
+  // Create background quad vertices if needed
+  if (myBndVertsBuffer == nil)
+  {
+    // Expand bounding box slightly for padding
+    float aPadding = 2.0f;
+    float aQuad[8] = {
+      myBndBox.Left - aPadding,  myBndBox.Bottom - aPadding,
+      myBndBox.Right + aPadding, myBndBox.Bottom - aPadding,
+      myBndBox.Left - aPadding,  myBndBox.Top + aPadding,
+      myBndBox.Right + aPadding, myBndBox.Top + aPadding
+    };
+
+    id<MTLDevice> aDevice = aCtx->Device();
+    if (aDevice != nil)
+    {
+      myBndVertsBuffer = [aDevice newBufferWithBytes:aQuad
+                                              length:sizeof(aQuad)
+                                             options:MTLResourceStorageModeShared];
+    }
+  }
+
+  if (myBndVertsBuffer == nil)
+  {
+    return;
+  }
+
+  // Uniform structure for solid color rendering
+  struct RectUniforms
+  {
+    float ModelViewProjection[16];
+    float Color[4];
+  };
+
+  RectUniforms aUniforms;
+
+  // Setup matrix (same as text)
+  if (myIs2D)
+  {
+    const int* aViewport = aCtx->Viewport();
+    float aWidth = static_cast<float>(aViewport[2] > 0 ? aViewport[2] : 800);
+    float aHeight = static_cast<float>(aViewport[3] > 0 ? aViewport[3] : 600);
+
+    NCollection_Mat4<float> aOrthoMat;
+    aOrthoMat.SetValue(0, 0, 2.0f / aWidth);
+    aOrthoMat.SetValue(1, 1, -2.0f / aHeight);
+    aOrthoMat.SetValue(2, 2, 1.0f);
+    aOrthoMat.SetValue(3, 3, 1.0f);
+    aOrthoMat.SetValue(0, 3, -1.0f);
+    aOrthoMat.SetValue(1, 3, 1.0f);
+
+    const gp_Pnt& aPos = myText->Position();
+    NCollection_Mat4<float> aTranslateMat;
+    aTranslateMat.InitIdentity();
+    aTranslateMat.SetValue(0, 3, static_cast<float>(aPos.X()));
+    aTranslateMat.SetValue(1, 3, static_cast<float>(aPos.Y()));
+
+    NCollection_Mat4<float> aMVP = aOrthoMat * aTranslateMat;
+    for (int i = 0; i < 16; ++i)
+    {
+      aUniforms.ModelViewProjection[i] = aMVP.GetData()[i];
+    }
+  }
+  else
+  {
+    NCollection_Mat4<float> aModelMat;
+    aModelMat.InitIdentity();
+
+    const gp_Pnt& aPos = myText->Position();
+    aModelMat.SetValue(0, 3, static_cast<float>(aPos.X()));
+    aModelMat.SetValue(1, 3, static_cast<float>(aPos.Y()));
+    aModelMat.SetValue(2, 3, static_cast<float>(aPos.Z()));
+
+    if (myScaleHeight != 1.0f)
+    {
+      aModelMat.SetValue(0, 0, myScaleHeight);
+      aModelMat.SetValue(1, 1, myScaleHeight);
+      aModelMat.SetValue(2, 2, myScaleHeight);
+    }
+
+    NCollection_Mat4<float> aViewProj = aCtx->ProjectionState.Current() * aCtx->WorldViewState.Current();
+    NCollection_Mat4<float> aMVP = aViewProj * aModelMat;
+
+    for (int i = 0; i < 16; ++i)
+    {
+      aUniforms.ModelViewProjection[i] = aMVP.GetData()[i];
+    }
+  }
+
+  aUniforms.Color[0] = theColor.x();
+  aUniforms.Color[1] = theColor.y();
+  aUniforms.Color[2] = theColor.z();
+  aUniforms.Color[3] = theColor.w();
+
+  // Bind vertex buffer
+  [anEncoder setVertexBuffer:myBndVertsBuffer offset:0 atIndex:0];
+
+  // Bind uniforms
+  [anEncoder setVertexBytes:&aUniforms length:sizeof(aUniforms) atIndex:2];
+  [anEncoder setFragmentBytes:&aUniforms length:sizeof(aUniforms) atIndex:0];
+
+  // Draw as triangle strip (4 vertices = 2 triangles)
+  [anEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip
+                vertexStart:0
+                vertexCount:4];
 }
 
 // =======================================================================
 // function : drawTextWithOffset
 // purpose  : Draw text glyphs with pixel offset for shadow effects
 // =======================================================================
-void Metal_Text::drawTextWithOffset(Metal_Context* theCtx,
+void Metal_Text::drawTextWithOffset(Metal_Workspace* theWorkspace,
                                      const Graphic3d_Aspects& theAspect,
                                      const NCollection_Vec4<float>& theColor,
                                      const NCollection_Vec3<float>& theOffset) const
@@ -698,27 +937,48 @@ void Metal_Text::drawTextWithOffset(Metal_Context* theCtx,
   myTextOffset = theOffset;
 
   // Setup matrix with the offset and draw
-  setupMatrix(theCtx, theAspect, theOffset);
-  drawText(theCtx, theAspect);
-
-  // Note: The actual offset is applied via the matrix transform.
-  // For 2D text, the offset is in screen pixels.
-  // For 3D text, the offset needs to be transformed to world space.
-  (void)theColor; // Color is set separately via context state
+  setupMatrix(theWorkspace, theAspect, theOffset);
+  drawText(theWorkspace, theAspect, theColor);
 }
 
 // =======================================================================
 // function : setupMatrix
-// purpose  : Setup model-view matrix
+// purpose  : Setup model-view matrix for text positioning
 // =======================================================================
-void Metal_Text::setupMatrix(Metal_Context* theCtx,
+void Metal_Text::setupMatrix(Metal_Workspace* theWorkspace,
                               const Graphic3d_Aspects& theAspect,
                               const NCollection_Vec3<float>& theOffset) const
 {
-  (void)theCtx;
   (void)theAspect;
-  (void)theOffset;
 
-  // TODO: Implement full matrix setup for 3D text positioning
-  // This requires integration with the shader uniform system
+  if (theWorkspace == nullptr)
+  {
+    return;
+  }
+
+  Metal_Context* aCtx = theWorkspace->Context();
+  if (aCtx == nullptr)
+  {
+    return;
+  }
+
+  // Store offset for use in drawText
+  myTextOffset = theOffset;
+
+  // For 3D text with custom orientation, compute full matrix
+  if (!myIs2D && myText->HasPlane())
+  {
+    const gp_Ax2& anOrientation = myText->Orientation();
+    const gp_Dir& aVectorDir = anOrientation.XDirection();
+    const gp_Dir& aVectorUp = anOrientation.Direction();
+    const gp_Dir& aVectorRight = anOrientation.YDirection();
+
+    // Build orientation matrix
+    NCollection_Mat4<double> aOrientMat;
+    aOrientMat.SetColumn(0, NCollection_Vec3<double>(aVectorDir.X(), aVectorDir.Y(), aVectorDir.Z()));
+    aOrientMat.SetColumn(1, NCollection_Vec3<double>(aVectorRight.X(), aVectorRight.Y(), aVectorRight.Z()));
+    aOrientMat.SetColumn(2, NCollection_Vec3<double>(aVectorUp.X(), aVectorUp.Y(), aVectorUp.Z()));
+
+    myOrientationMatrix = aOrientMat;
+  }
 }

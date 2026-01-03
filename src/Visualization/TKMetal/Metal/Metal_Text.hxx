@@ -91,34 +91,38 @@ public:
 protected:
 
   //! Render implementation with given colors.
-  Standard_EXPORT void render(Metal_Context* theCtx,
+  Standard_EXPORT void render(Metal_Workspace* theWorkspace,
                                const Graphic3d_Aspects& theAspect,
                                const NCollection_Vec4<float>& theColorText,
                                const NCollection_Vec4<float>& theColorSubs,
                                unsigned int theResolution,
                                Font_Hinting theFontHinting) const;
 
-  //! Draw text quads.
-  Standard_EXPORT void drawText(Metal_Context* theCtx,
-                                 const Graphic3d_Aspects& theAspect) const;
+  //! Draw text quads using render encoder from workspace.
+  Standard_EXPORT void drawText(Metal_Workspace* theWorkspace,
+                                 const Graphic3d_Aspects& theAspect,
+                                 const NCollection_Vec4<float>& theColor) const;
 
-  //! Draw background rectangle.
-  Standard_EXPORT void drawRect(Metal_Context* theCtx,
+  //! Draw background rectangle using render encoder from workspace.
+  Standard_EXPORT void drawRect(Metal_Workspace* theWorkspace,
                                  const Graphic3d_Aspects& theAspect,
                                  const NCollection_Vec4<float>& theColor) const;
 
   //! Draw text glyphs with pixel offset for shadow effects.
-  //! @param theCtx context
+  //! @param theWorkspace workspace with render encoder
   //! @param theAspect aspects
   //! @param theColor text color
   //! @param theOffset pixel offset (x, y, 0)
-  Standard_EXPORT void drawTextWithOffset(Metal_Context* theCtx,
+  Standard_EXPORT void drawTextWithOffset(Metal_Workspace* theWorkspace,
                                            const Graphic3d_Aspects& theAspect,
                                            const NCollection_Vec4<float>& theColor,
                                            const NCollection_Vec3<float>& theOffset) const;
 
-  //! Setup model-view matrix.
-  Standard_EXPORT void setupMatrix(Metal_Context* theCtx,
+  //! Setup model-view matrix for text positioning.
+  //! @param theWorkspace workspace for matrix state
+  //! @param theAspect aspects
+  //! @param theOffset pixel offset for shadow effects
+  Standard_EXPORT void setupMatrix(Metal_Workspace* theWorkspace,
                                     const Graphic3d_Aspects& theAspect,
                                     const NCollection_Vec3<float>& theOffset) const;
 
