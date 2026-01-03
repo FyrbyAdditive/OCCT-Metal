@@ -15,8 +15,11 @@
 #include <Metal_View.hxx>
 #include <Metal_Window.hxx>
 #include <Metal_Structure.hxx>
+#include <Font_FontMgr.hxx>
+#include <Font_FTFont.hxx>
 #include <Graphic3d_StructureManager.hxx>
 #include <Graphic3d_TypeOfLimit.hxx>
+#include <NCollection_String.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_GraphicDriver, Graphic3d_GraphicDriver)
 
@@ -239,12 +242,92 @@ void Metal_GraphicDriver::TextSize(const occ::handle<Graphic3d_CView>& theView,
                                    float& theAscent,
                                    float& theDescent) const
 {
-  (void)theView;
-  (void)theText;
-  // Simple approximation - will be replaced with actual text measurement
-  theWidth = theHeight * 0.6f * (theText != nullptr ? strlen(theText) : 0);
-  theAscent = theHeight * 0.8f;
-  theDescent = theHeight * 0.2f;
+  theWidth = 0.0f;
+  theAscent = 0.0f;
+  theDescent = 0.0f;
+
+  if (theText == nullptr || theText[0] == '\0')
+  {
+    return;
+  }
+
+  // Get font parameters from view's rendering params
+  unsigned int aResolution = 72;
+  Font_Hinting aFontHinting = Font_Hinting_Off;
+  if (!theView.IsNull())
+  {
+    aResolution = theView->RenderingParams().Resolution;
+    aFontHinting = theView->RenderingParams().FontHinting;
+  }
+
+  // Use height with minimum
+  const float aHeight = (theHeight < 2.0f) ? DefaultTextHeight() : theHeight;
+
+  // Find a system font
+  occ::handle<Font_FontMgr> aFontMgr = Font_FontMgr::GetInstance();
+  Font_FontAspect aFontAspect = Font_FontAspect_Regular;
+  occ::handle<Font_SystemFont> aSystemFont = aFontMgr->FindFont(TCollection_AsciiString(""), aFontAspect);
+  if (aSystemFont.IsNull())
+  {
+    // Fallback to approximation if no system font found
+    theWidth = aHeight * 0.6f * strlen(theText);
+    theAscent = aHeight * 0.8f;
+    theDescent = aHeight * 0.2f;
+    return;
+  }
+
+  // Create FTFont for measurement
+  Font_FTFontParams aFontParams;
+  aFontParams.PointSize = (unsigned int)aHeight;
+  aFontParams.Resolution = aResolution;
+  aFontParams.FontHinting = aFontHinting;
+
+  occ::handle<Font_FTFont> aFont = new Font_FTFont();
+  bool aToSynthesizeItalic = false;
+  int aFaceId = 0;
+  TCollection_AsciiString aFontPath = aSystemFont->FontPathAny(aFontAspect, aToSynthesizeItalic, aFaceId);
+  if (!aFont->Init(aFontPath, aFontParams))
+  {
+    // Fallback to approximation
+    theWidth = aHeight * 0.6f * strlen(theText);
+    theAscent = aHeight * 0.8f;
+    theDescent = aHeight * 0.2f;
+    return;
+  }
+
+  // Get ascent and descent from font metrics
+  theAscent = aFont->Ascender();
+  theDescent = -aFont->Descender(); // Descender is typically negative
+
+  // Compute width by summing character advances
+  NCollection_String aTextStr(theText);
+  float aWidth = 0.0f;
+  for (NCollection_UtfIterator<char> anIter = aTextStr.Iterator(); *anIter != 0;)
+  {
+    const char32_t aCharThis = *anIter;
+    const char32_t aCharNext = *++anIter;
+
+    // Skip control characters
+    if (aCharThis == '\x0D' || aCharThis == '\a' || aCharThis == '\f' ||
+        aCharThis == '\b' || aCharThis == '\v')
+    {
+      continue;
+    }
+    else if (aCharThis == '\x0A') // newline
+    {
+      theWidth = std::max(theWidth, aWidth);
+      aWidth = 0.0f;
+      continue;
+    }
+    else if (aCharThis == '\t')
+    {
+      aWidth += aFont->AdvanceX(' ', aCharNext) * 8.0f;
+      continue;
+    }
+
+    aWidth += aFont->AdvanceX(aCharThis, aCharNext);
+  }
+  theWidth = std::max(theWidth, aWidth);
 }
 
 // =======================================================================
