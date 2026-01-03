@@ -12,6 +12,7 @@
 // commercial license or contractual agreement.
 
 #import <Metal/Metal.h>
+#include <unistd.h>  // For usleep in async readback
 
 #include <Metal_FrameBuffer.hxx>
 #include <Metal_Context.hxx>
@@ -640,6 +641,242 @@ bool Metal_FrameBuffer::ReadDepthPixels(Metal_Context* theCtx,
               mipmapLevel:0];
   }
 
+  return true;
+}
+
+// =======================================================================
+// function : BeginAsyncColorReadback
+// purpose  : Start async texture readback, returns handle for polling
+// =======================================================================
+Metal_FrameBuffer::AsyncReadbackHandle Metal_FrameBuffer::BeginAsyncColorReadback(Metal_Context* theCtx,
+                                                                                    int theIndex)
+{
+  AsyncReadbackHandle aHandle;
+
+  if (theCtx == nullptr || !myIsValid)
+  {
+    return aHandle;
+  }
+
+  if (theIndex < 0 || theIndex >= myColorTextures.Length())
+  {
+    return aHandle;
+  }
+
+  id<MTLTexture> aSrcTexture = myColorTextures.Value(theIndex)->Texture();
+  if (aSrcTexture == nil)
+  {
+    return aHandle;
+  }
+
+  // Determine bytes per pixel
+  int aBpp = 4;
+  MTLPixelFormat aFormat = aSrcTexture.pixelFormat;
+  if (aFormat == MTLPixelFormatRGBA16Float)
+  {
+    aBpp = 8;
+  }
+  else if (aFormat == MTLPixelFormatRGBA32Float)
+  {
+    aBpp = 16;
+  }
+
+  size_t aBytesPerRow = mySizeX * aBpp;
+  size_t aTotalBytes = aBytesPerRow * mySizeY;
+
+  // Create shared buffer for async readback
+  id<MTLBuffer> aReadbackBuffer = [theCtx->Device() newBufferWithLength:aTotalBytes
+                                                                options:MTLResourceStorageModeShared];
+  if (aReadbackBuffer == nil)
+  {
+    return aHandle;
+  }
+
+  // Create and submit blit command
+  id<MTLCommandBuffer> aCmdBuffer = theCtx->CreateCommandBuffer();
+  id<MTLBlitCommandEncoder> aBlitEncoder = [aCmdBuffer blitCommandEncoder];
+
+  [aBlitEncoder copyFromTexture:aSrcTexture
+                    sourceSlice:0
+                    sourceLevel:0
+                   sourceOrigin:MTLOriginMake(0, 0, 0)
+                     sourceSize:MTLSizeMake(mySizeX, mySizeY, 1)
+                       toBuffer:aReadbackBuffer
+              destinationOffset:0
+         destinationBytesPerRow:aBytesPerRow
+       destinationBytesPerImage:aTotalBytes];
+
+  [aBlitEncoder endEncoding];
+  [aCmdBuffer commit];
+
+  // Fill handle with tracking info
+  aHandle.CommandBuffer = aCmdBuffer;
+  aHandle.ReadbackBuffer = aReadbackBuffer;
+  aHandle.DataSize = aTotalBytes;
+  aHandle.Width = mySizeX;
+  aHandle.Height = mySizeY;
+  aHandle.BytesPerPixel = aBpp;
+  aHandle.IsDepth = false;
+  aHandle.IsComplete = false;
+
+  return aHandle;
+}
+
+// =======================================================================
+// function : BeginAsyncDepthReadback
+// purpose  : Start async depth texture readback
+// =======================================================================
+Metal_FrameBuffer::AsyncReadbackHandle Metal_FrameBuffer::BeginAsyncDepthReadback(Metal_Context* theCtx)
+{
+  AsyncReadbackHandle aHandle;
+
+  if (theCtx == nullptr || !myIsValid || myDepthStencilTexture.IsNull())
+  {
+    return aHandle;
+  }
+
+  id<MTLTexture> aSrcTexture = myDepthStencilTexture->Texture();
+  if (aSrcTexture == nil)
+  {
+    return aHandle;
+  }
+
+  size_t aBytesPerRow = mySizeX * sizeof(float);
+  size_t aTotalBytes = aBytesPerRow * mySizeY;
+
+  id<MTLBuffer> aReadbackBuffer = [theCtx->Device() newBufferWithLength:aTotalBytes
+                                                                options:MTLResourceStorageModeShared];
+  if (aReadbackBuffer == nil)
+  {
+    return aHandle;
+  }
+
+  id<MTLCommandBuffer> aCmdBuffer = theCtx->CreateCommandBuffer();
+  id<MTLBlitCommandEncoder> aBlitEncoder = [aCmdBuffer blitCommandEncoder];
+
+  [aBlitEncoder copyFromTexture:aSrcTexture
+                    sourceSlice:0
+                    sourceLevel:0
+                   sourceOrigin:MTLOriginMake(0, 0, 0)
+                     sourceSize:MTLSizeMake(mySizeX, mySizeY, 1)
+                       toBuffer:aReadbackBuffer
+              destinationOffset:0
+         destinationBytesPerRow:aBytesPerRow
+       destinationBytesPerImage:aTotalBytes];
+
+  [aBlitEncoder endEncoding];
+  [aCmdBuffer commit];
+
+  aHandle.CommandBuffer = aCmdBuffer;
+  aHandle.ReadbackBuffer = aReadbackBuffer;
+  aHandle.DataSize = aTotalBytes;
+  aHandle.Width = mySizeX;
+  aHandle.Height = mySizeY;
+  aHandle.BytesPerPixel = sizeof(float);
+  aHandle.IsDepth = true;
+  aHandle.IsComplete = false;
+
+  return aHandle;
+}
+
+// =======================================================================
+// function : IsReadbackComplete
+// purpose  : Check if async readback has completed (non-blocking)
+// =======================================================================
+bool Metal_FrameBuffer::IsReadbackComplete(AsyncReadbackHandle& theHandle)
+{
+  if (theHandle.IsComplete)
+  {
+    return true;
+  }
+
+  if (theHandle.CommandBuffer == nil)
+  {
+    return false;
+  }
+
+  MTLCommandBufferStatus aStatus = [theHandle.CommandBuffer status];
+  if (aStatus == MTLCommandBufferStatusCompleted)
+  {
+    theHandle.IsComplete = true;
+    return true;
+  }
+  else if (aStatus == MTLCommandBufferStatusError)
+  {
+    // Error occurred, mark as complete but data is invalid
+    theHandle.IsComplete = true;
+    theHandle.DataSize = 0;
+    return true;
+  }
+
+  return false;
+}
+
+// =======================================================================
+// function : WaitForReadback
+// purpose  : Wait for async readback and copy data
+// =======================================================================
+bool Metal_FrameBuffer::WaitForReadback(AsyncReadbackHandle& theHandle,
+                                         void* theData,
+                                         unsigned int theTimeoutMs)
+{
+  if (theHandle.CommandBuffer == nil || theHandle.ReadbackBuffer == nil || theData == nullptr)
+  {
+    return false;
+  }
+
+  if (!theHandle.IsComplete)
+  {
+    if (theTimeoutMs > 0)
+    {
+      // Poll with timeout
+      CFAbsoluteTime aStartTime = CFAbsoluteTimeGetCurrent();
+      double aTimeoutSec = theTimeoutMs / 1000.0;
+
+      while (!IsReadbackComplete(theHandle))
+      {
+        if (CFAbsoluteTimeGetCurrent() - aStartTime > aTimeoutSec)
+        {
+          return false; // Timeout
+        }
+        usleep(100); // Sleep 100 microseconds between polls
+      }
+    }
+    else
+    {
+      // Wait indefinitely
+      [theHandle.CommandBuffer waitUntilCompleted];
+      theHandle.IsComplete = true;
+    }
+  }
+
+  if (theHandle.DataSize == 0)
+  {
+    return false; // Error occurred during readback
+  }
+
+  memcpy(theData, theHandle.ReadbackBuffer.contents, theHandle.DataSize);
+  return true;
+}
+
+// =======================================================================
+// function : TryCopyReadbackData
+// purpose  : Copy data if ready (non-blocking)
+// =======================================================================
+bool Metal_FrameBuffer::TryCopyReadbackData(AsyncReadbackHandle& theHandle,
+                                             void* theData)
+{
+  if (!IsReadbackComplete(theHandle))
+  {
+    return false;
+  }
+
+  if (theHandle.ReadbackBuffer == nil || theData == nullptr || theHandle.DataSize == 0)
+  {
+    return false;
+  }
+
+  memcpy(theData, theHandle.ReadbackBuffer.contents, theHandle.DataSize);
   return true;
 }
 

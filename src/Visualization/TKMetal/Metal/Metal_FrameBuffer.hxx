@@ -176,7 +176,7 @@ public:
   //! Return raw Metal texture for depth attachment.
   id<MTLTexture> MetalDepthTexture() const;
 
-  //! Read color buffer pixels into CPU memory.
+  //! Read color buffer pixels into CPU memory (synchronous).
   //! @param theCtx     Metal context
   //! @param theData    destination buffer (must be large enough)
   //! @param theIndex   color attachment index
@@ -185,12 +185,62 @@ public:
                                         Standard_Byte* theData,
                                         int theIndex = 0) const;
 
-  //! Read depth buffer pixels into CPU memory.
+  //! Read depth buffer pixels into CPU memory (synchronous).
   //! @param theCtx  Metal context
   //! @param theData destination buffer for float depth values
   //! @return true on success
   Standard_EXPORT bool ReadDepthPixels(Metal_Context* theCtx,
                                         float* theData) const;
+
+  //! Async texture readback handle for tracking pending operations.
+  struct AsyncReadbackHandle
+  {
+    id<MTLCommandBuffer> CommandBuffer; //!< command buffer for completion tracking
+    id<MTLBuffer>        ReadbackBuffer; //!< shared buffer containing pixel data
+    size_t               DataSize;       //!< size of data in bytes
+    int                  Width;          //!< texture width
+    int                  Height;         //!< texture height
+    int                  BytesPerPixel;  //!< bytes per pixel
+    bool                 IsDepth;        //!< whether this is a depth readback
+    bool                 IsComplete;     //!< whether readback has completed
+
+    AsyncReadbackHandle() : CommandBuffer(nil), ReadbackBuffer(nil), DataSize(0),
+                            Width(0), Height(0), BytesPerPixel(0), IsDepth(false), IsComplete(false) {}
+  };
+
+  //! Begin asynchronous color buffer readback.
+  //! Returns a handle that can be polled for completion.
+  //! @param theCtx     Metal context
+  //! @param theIndex   color attachment index
+  //! @return readback handle (check IsComplete or use WaitForReadback)
+  Standard_EXPORT AsyncReadbackHandle BeginAsyncColorReadback(Metal_Context* theCtx,
+                                                               int theIndex = 0);
+
+  //! Begin asynchronous depth buffer readback.
+  //! @param theCtx  Metal context
+  //! @return readback handle
+  Standard_EXPORT AsyncReadbackHandle BeginAsyncDepthReadback(Metal_Context* theCtx);
+
+  //! Check if async readback is complete (non-blocking).
+  //! @param theHandle readback handle from BeginAsync* method
+  //! @return true if readback data is ready
+  Standard_EXPORT static bool IsReadbackComplete(AsyncReadbackHandle& theHandle);
+
+  //! Wait for async readback to complete and copy data.
+  //! @param theHandle readback handle
+  //! @param theData   destination buffer
+  //! @param theTimeoutMs maximum wait time in milliseconds (0 = infinite)
+  //! @return true on success
+  Standard_EXPORT static bool WaitForReadback(AsyncReadbackHandle& theHandle,
+                                               void* theData,
+                                               unsigned int theTimeoutMs = 0);
+
+  //! Copy readback data after completion (non-blocking, returns false if not ready).
+  //! @param theHandle readback handle
+  //! @param theData   destination buffer
+  //! @return true if data was copied
+  Standard_EXPORT static bool TryCopyReadbackData(AsyncReadbackHandle& theHandle,
+                                                   void* theData);
 #endif
 
 protected:
