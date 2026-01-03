@@ -180,6 +180,7 @@ void Metal_GeometryMesh::Release(Metal_Context* /*theCtx*/)
 Metal_SceneGeometry::Metal_SceneGeometry()
 : myAccelStructure(nil),
   myInstanceBuffer(nil),
+  myMaterialIndexBuffer(nil),
   myIsDirty(true)
 {
 }
@@ -294,14 +295,26 @@ bool Metal_SceneGeometry::BuildAccelerationStructure(Metal_Context* theCtx)
     return false;
   }
 
-  // Flatten all geometry
+  // Flatten all geometry with material indices
   NCollection_Vector<float> aVertices;
   NCollection_Vector<uint32_t> aIndices;
-  flattenGeometry(aVertices, aIndices);
+  NCollection_Vector<int32_t> aMaterialIndices;
+  flattenGeometry(aVertices, aIndices, aMaterialIndices);
 
   if (aVertices.Size() == 0 || aIndices.Size() == 0)
   {
     return false;
+  }
+
+  // Store material indices for later access
+  myMaterialIndices = aMaterialIndices;
+
+  // Create material index buffer
+  if (aMaterialIndices.Size() > 0)
+  {
+    myMaterialIndexBuffer = [aDevice newBufferWithBytes:&aMaterialIndices.First()
+                                                 length:aMaterialIndices.Size() * sizeof(int32_t)
+                                                options:MTLResourceStorageModeShared];
   }
 
   // Create vertex/index buffers
@@ -367,10 +380,12 @@ bool Metal_SceneGeometry::BuildAccelerationStructure(Metal_Context* theCtx)
 
 void Metal_SceneGeometry::flattenGeometry(
   NCollection_Vector<float>& theVertices,
-  NCollection_Vector<uint32_t>& theIndices) const
+  NCollection_Vector<uint32_t>& theIndices,
+  NCollection_Vector<int32_t>& theMaterialIndices) const
 {
   theVertices.Clear();
   theIndices.Clear();
+  theMaterialIndices.Clear();
 
   uint32_t aVertexOffset = 0;
 
@@ -385,6 +400,11 @@ void Metal_SceneGeometry::flattenGeometry(
     const occ::handle<Metal_GeometryMesh>& aMesh = anInst.Mesh;
     int aVertCount = aMesh->VertexCount();
     int aTriCount = aMesh->TriangleCount();
+
+    // Determine material index for this instance
+    int aMaterialIdx = (anInst.MaterialOverride >= 0)
+                       ? anInst.MaterialOverride
+                       : aMesh->MaterialIndex();
 
     // Transform and append vertices
     const NCollection_Vector<float>& aSrcVerts = aMesh->myVertexData;
@@ -410,6 +430,12 @@ void Metal_SceneGeometry::flattenGeometry(
       theIndices.Append(aSrcInds.Value(t) + aVertexOffset);
     }
 
+    // Append material index for each triangle
+    for (int t = 0; t < aTriCount; ++t)
+    {
+      theMaterialIndices.Append(aMaterialIdx);
+    }
+
     aVertexOffset += aVertCount;
   }
 }
@@ -425,6 +451,8 @@ void Metal_SceneGeometry::Release(Metal_Context* theCtx)
 
   myAccelStructure = nil;
   myInstanceBuffer = nil;
+  myMaterialIndexBuffer = nil;
+  myMaterialIndices.Clear();
   myIsDirty = true;
 }
 

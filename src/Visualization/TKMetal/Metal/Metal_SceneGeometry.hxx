@@ -289,14 +289,21 @@ public:
 
   //! Return instance buffer for instanced ray tracing.
   id<MTLBuffer> InstanceBuffer() const { return myInstanceBuffer; }
+
+  //! Return per-triangle material index buffer.
+  id<MTLBuffer> MaterialIndexBuffer() const { return myMaterialIndexBuffer; }
 #endif
+
+  //! Return material indices array (one per triangle).
+  const NCollection_Vector<int32_t>& MaterialIndices() const { return myMaterialIndices; }
 
 protected:
 
-  //! Flatten geometry into single vertex/index arrays for BVH build.
+  //! Flatten geometry into single vertex/index/material arrays for BVH build.
   Standard_EXPORT void flattenGeometry(
     NCollection_Vector<float>& theVertices,
-    NCollection_Vector<uint32_t>& theIndices) const;
+    NCollection_Vector<uint32_t>& theIndices,
+    NCollection_Vector<int32_t>& theMaterialIndices) const;
 
 protected:
 
@@ -306,11 +313,14 @@ protected:
 #ifdef __OBJC__
   id<MTLAccelerationStructure> myAccelStructure;                  //!< BVH acceleration structure
   id<MTLBuffer> myInstanceBuffer;                                 //!< instance transforms buffer
+  id<MTLBuffer> myMaterialIndexBuffer;                            //!< per-triangle material indices
 #else
   void* myAccelStructure;
   void* myInstanceBuffer;
+  void* myMaterialIndexBuffer;
 #endif
 
+  NCollection_Vector<int32_t> myMaterialIndices;                  //!< per-triangle material indices (CPU)
   bool myIsDirty;                                                 //!< geometry modified flag
 };
 

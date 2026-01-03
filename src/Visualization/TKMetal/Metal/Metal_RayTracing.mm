@@ -111,6 +111,7 @@ kernel void shade(
   constant RaytraceMaterial* materials [[buffer(5)]],
   constant RaytraceLight* lights [[buffer(6)]],
   constant int& lightCount [[buffer(7)]],
+  constant int* materialIndices [[buffer(8)]],
   uint2 gid [[thread_position_in_grid]])
 {
   if (gid.x >= uint(camera.resolution.x) || gid.y >= uint(camera.resolution.y)) {
@@ -147,12 +148,9 @@ kernel void shade(
     // Hit point
     float3 hitPoint = rays[rayIndex].origin + isect.distance * rays[rayIndex].direction;
 
-    // Material lookup: currently uses first material for all triangles.
-    // Multi-material support requires a per-triangle material index buffer
-    // mapping primitiveIndex -> materialIndex, which can be added to the
-    // acceleration structure build process in Metal_RayTracing::BuildBVH().
-    // For now, all geometry shares the same material properties.
-    RaytraceMaterial mat = materials[0];
+    // Material lookup using per-triangle material index buffer
+    int matIdx = materialIndices[triIndex];
+    RaytraceMaterial mat = materials[matIdx];
     float3 diffuseColor = mat.diffuse.rgb;
 
     // Accumulate lighting
@@ -204,6 +202,7 @@ Metal_RayTracing::Metal_RayTracing()
   myVertexBuffer(nil),
   myIndexBuffer(nil),
   myMaterialBuffer(nil),
+  myMaterialIndexBuffer(nil),
   myLightBuffer(nil),
   myRayBuffer(nil),
   myIntersectionBuffer(nil),
@@ -338,6 +337,7 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myVertexBuffer = nil;
   myIndexBuffer = nil;
   myMaterialBuffer = nil;
+  myMaterialIndexBuffer = nil;
   myLightBuffer = nil;
   myRayBuffer = nil;
   myIntersectionBuffer = nil;
@@ -417,6 +417,27 @@ void Metal_RayTracing::SetMaterials(Metal_Context* theCtx,
                                           length:aSize
                                          options:MTLResourceStorageModeShared];
   myMaterialCount = theMaterialCount;
+}
+
+// =======================================================================
+// function : SetMaterialIndices
+// purpose  : Set per-triangle material indices
+// =======================================================================
+void Metal_RayTracing::SetMaterialIndices(Metal_Context* theCtx,
+                                          const int32_t* theMaterialIndices,
+                                          int theTriangleCount)
+{
+  if (!myIsValid || theCtx == nullptr || theMaterialIndices == nullptr || theTriangleCount <= 0)
+  {
+    return;
+  }
+
+  id<MTLDevice> aDevice = theCtx->Device();
+
+  size_t aSize = static_cast<size_t>(theTriangleCount) * sizeof(int32_t);
+  myMaterialIndexBuffer = [aDevice newBufferWithBytes:theMaterialIndices
+                                               length:aSize
+                                              options:MTLResourceStorageModeShared];
 }
 
 // =======================================================================
@@ -555,6 +576,18 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
     {
       int zeroLights = 0;
       [anEncoder setBytes:&zeroLights length:sizeof(zeroLights) atIndex:7];
+    }
+
+    // Material index buffer (per-triangle material lookup)
+    if (myMaterialIndexBuffer != nil)
+    {
+      [anEncoder setBuffer:myMaterialIndexBuffer offset:0 atIndex:8];
+    }
+    else
+    {
+      // Fallback: all triangles use material 0
+      static int32_t aZeroIndex = 0;
+      [anEncoder setBytes:&aZeroIndex length:sizeof(aZeroIndex) atIndex:8];
     }
 
     MTLSize aThreadgroupSize = MTLSizeMake(8, 8, 1);

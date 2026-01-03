@@ -105,6 +105,14 @@ public:
                                     const Metal_RaytraceMaterial* theMaterials,
                                     int theMaterialCount);
 
+  //! Set per-triangle material indices.
+  //! @param theCtx Metal context
+  //! @param theMaterialIndices array of material indices (one per triangle)
+  //! @param theTriangleCount number of triangles
+  Standard_EXPORT void SetMaterialIndices(Metal_Context* theCtx,
+                                          const int32_t* theMaterialIndices,
+                                          int theTriangleCount);
+
   //! Set lights for ray tracing.
   //! @param theCtx Metal context
   //! @param theLights array of lights
@@ -164,6 +172,7 @@ private:
   id<MTLBuffer> myVertexBuffer;
   id<MTLBuffer> myIndexBuffer;
   id<MTLBuffer> myMaterialBuffer;
+  id<MTLBuffer> myMaterialIndexBuffer;  //!< Per-triangle material indices
   id<MTLBuffer> myLightBuffer;
   id<MTLBuffer> myRayBuffer;
   id<MTLBuffer> myIntersectionBuffer;
@@ -178,6 +187,7 @@ private:
   void* myVertexBuffer;
   void* myIndexBuffer;
   void* myMaterialBuffer;
+  void* myMaterialIndexBuffer;
   void* myLightBuffer;
   void* myRayBuffer;
   void* myIntersectionBuffer;
