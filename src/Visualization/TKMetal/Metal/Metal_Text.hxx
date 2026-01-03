@@ -16,10 +16,22 @@
 
 #include <Standard_Transient.hxx>
 #include <Graphic3d_Text.hxx>
+#include <Graphic3d_Aspects.hxx>
+#include <Font_Rect.hxx>
+#include <Font_Hinting.hxx>
+#include <NCollection_Mat4.hxx>
 #include <NCollection_Vec3.hxx>
+#include <NCollection_Vec4.hxx>
+#include <NCollection_Vector.hxx>
+
+#ifdef __OBJC__
+@protocol MTLBuffer;
+#endif
 
 class Metal_Context;
 class Metal_Workspace;
+class Metal_Font;
+class Metal_VertexBuffer;
 
 //! Text rendering element for Metal.
 //! Stores text parameters and renders text using font texture atlas.
@@ -50,16 +62,96 @@ public:
   //! Set 2D mode.
   void Set2D(bool theValue) { myIs2D = theValue; }
 
+  //! Set position.
+  void SetPosition(const NCollection_Vec3<float>& thePoint);
+
   //! Render the text.
   Standard_EXPORT void Render(Metal_Workspace* theWorkspace) const;
 
+  //! Render with explicit aspect and colors.
+  Standard_EXPORT void Render(Metal_Context* theCtx,
+                              const Graphic3d_Aspects& theAspect,
+                              unsigned int theResolution,
+                              Font_Hinting theFontHinting) const;
+
   //! Return estimated GPU memory usage.
   Standard_EXPORT size_t EstimatedDataSize() const;
+
+  //! Compute text string dimensions.
+  Standard_EXPORT static void StringSize(Metal_Context* theCtx,
+                                          const NCollection_String& theText,
+                                          const Graphic3d_Aspects& theAspect,
+                                          float theHeight,
+                                          unsigned int theResolution,
+                                          Font_Hinting theFontHinting,
+                                          float& theWidth,
+                                          float& theAscent,
+                                          float& theDescent);
+
+protected:
+
+  //! Render implementation with given colors.
+  Standard_EXPORT void render(Metal_Context* theCtx,
+                               const Graphic3d_Aspects& theAspect,
+                               const NCollection_Vec4<float>& theColorText,
+                               const NCollection_Vec4<float>& theColorSubs,
+                               unsigned int theResolution,
+                               Font_Hinting theFontHinting) const;
+
+  //! Draw text quads.
+  Standard_EXPORT void drawText(Metal_Context* theCtx,
+                                 const Graphic3d_Aspects& theAspect) const;
+
+  //! Draw background rectangle.
+  Standard_EXPORT void drawRect(Metal_Context* theCtx,
+                                 const Graphic3d_Aspects& theAspect,
+                                 const NCollection_Vec4<float>& theColor) const;
+
+  //! Setup model-view matrix.
+  Standard_EXPORT void setupMatrix(Metal_Context* theCtx,
+                                    const Graphic3d_Aspects& theAspect,
+                                    const NCollection_Vec3<float>& theOffset) const;
+
+  //! Find or create font for rendering.
+  Standard_EXPORT static occ::handle<Metal_Font> FindFont(Metal_Context* theCtx,
+                                                           const Graphic3d_Aspects& theAspect,
+                                                           int theHeight,
+                                                           unsigned int theResolution,
+                                                           Font_Hinting theFontHinting);
+
+  //! Generate font resource key.
+  Standard_EXPORT static TCollection_AsciiString FontKey(const Graphic3d_Aspects& theAspect,
+                                                          int theHeight,
+                                                          unsigned int theResolution,
+                                                          Font_Hinting theFontHinting);
 
 protected:
 
   occ::handle<Graphic3d_Text> myText;  //!< text parameters
   bool myIs2D;                         //!< 2D text flag
+  mutable float myScaleHeight;         //!< scale factor for constant height
+
+  //! GPU resources - mutable for lazy initialization during const Render()
+  mutable occ::handle<Metal_Font> myFont; //!< font with texture atlas
+
+  //! Per-texture vertex data
+#ifdef __OBJC__
+  mutable NCollection_Vector<id<MTLBuffer>> myVertsBuffers; //!< vertex position buffers
+  mutable NCollection_Vector<id<MTLBuffer>> myTCrdsBuffers; //!< texture coordinate buffers
+  mutable id<MTLBuffer> myBndVertsBuffer;                   //!< background quad buffer
+#else
+  mutable NCollection_Vector<void*> myVertsBuffers;
+  mutable NCollection_Vector<void*> myTCrdsBuffers;
+  mutable void* myBndVertsBuffer;
+#endif
+  mutable NCollection_Vector<int> myTextureIndices; //!< texture indices for each buffer
+  mutable Font_Rect myBndBox;                        //!< bounding box for background
+
+  //! Transform matrices (mutable for Render const)
+  mutable NCollection_Mat4<double> myProjMatrix;        //!< projection matrix
+  mutable NCollection_Mat4<double> myOrientationMatrix; //!< orientation matrix
+  mutable NCollection_Mat4<double> myModelMatrix;       //!< model-view matrix
+  mutable NCollection_Vec3<double> myWinXYZ;            //!< window coordinates
 
 };
 
