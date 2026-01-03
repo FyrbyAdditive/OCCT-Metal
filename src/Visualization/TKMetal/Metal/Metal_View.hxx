@@ -26,6 +26,8 @@
 #include <Metal_FrameBuffer.hxx>
 #include <Metal_Texture.hxx>
 #include <Metal_Window.hxx>
+
+class Metal_PBREnvironment;
 #include <NCollection_DataMap.hxx>
 #include <NCollection_List.hxx>
 #include <Quantity_Color.hxx>
@@ -262,6 +264,10 @@ protected:
   Aspect_FillMethod                 myBgImageStyle;    //!< Background image style
   occ::handle<Metal_Texture>        myBgTexture;       //!< Background texture
   occ::handle<Metal_Texture>        myEnvCubemap;      //!< Environment cubemap texture
+
+  // IBL (Image-Based Lighting)
+  occ::handle<Metal_PBREnvironment> myPBREnvironment;  //!< PBR environment for IBL
+  bool                              myIBLEnabled;      //!< IBL enabled flag
 
   // Layer management
   NCollection_List<occ::handle<Graphic3d_Layer>> myLayers; //!< Z-layers (ordered list)

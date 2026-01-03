@@ -19,6 +19,7 @@
 // Now include OCCT headers
 #include <Metal_View.hxx>
 #include <Metal_GraphicDriver.hxx>
+#include "Metal_PBREnvironment.hxx"
 #include <Metal_Structure.hxx>
 #include <Metal_Workspace.hxx>
 #include <Metal_FrameBuffer.hxx>
@@ -44,6 +45,7 @@ Metal_View::Metal_View(const occ::handle<Graphic3d_StructureManager>& theMgr,
   myBgGradientTo(Quantity_NOC_BLACK),
   myBgGradientMethod(Aspect_GradientFillMethod_None),
   myBgImageStyle(Aspect_FM_CENTERED),
+  myIBLEnabled(false),
   myZLayerMax(0),
   myBackBufferRestored(false),
   myToDrawImmediate(false),
@@ -870,8 +872,60 @@ void Metal_View::SetBackgroundImageStyle(const Aspect_FillMethod theFillStyle)
 // =======================================================================
 void Metal_View::SetImageBasedLighting(bool theToEnableIBL)
 {
-  (void)theToEnableIBL;
-  // IBL support will be implemented in later phases
+  myIBLEnabled = theToEnableIBL;
+
+  if (!theToEnableIBL)
+  {
+    // Disable IBL - release PBR environment
+    if (!myPBREnvironment.IsNull())
+    {
+      myPBREnvironment->Release();
+      myPBREnvironment.Nullify();
+      myContext->Messenger()->SendInfo() << "Metal_View: IBL disabled";
+    }
+    return;
+  }
+
+  // Enable IBL - create/update PBR environment from environment cubemap
+  if (myContext.IsNull())
+  {
+    return;
+  }
+
+  // Create PBR environment if not exists
+  unsigned int aPow2Size = (unsigned int)myRenderParams.PbrEnvPow2Size;
+  unsigned int aSpecLevels = std::min(aPow2Size + 1, 10u);
+
+  if (myPBREnvironment.IsNull() || myPBREnvironment->SizesAreDifferent(aPow2Size, aSpecLevels))
+  {
+    myPBREnvironment = Metal_PBREnvironment::Create(myContext, aPow2Size, aSpecLevels);
+    if (myPBREnvironment.IsNull())
+    {
+      myContext->Messenger()->SendWarning() << "Metal_View: Failed to create PBR environment";
+      return;
+    }
+  }
+
+  // Bake IBL maps from environment cubemap if available
+  if (!myEnvCubemap.IsNull() && myEnvCubemap->IsValid())
+  {
+#ifdef __OBJC__
+    myPBREnvironment->Bake(myContext, myEnvCubemap->Texture(),
+                           false,  // Z not inverted
+                           false,  // not top-down
+                           64,     // diffuse samples
+                           256);   // specular samples
+    myContext->Messenger()->SendInfo() << "Metal_View: IBL baked from environment texture";
+#endif
+  }
+  else
+  {
+    // Clear to default ambient
+    myPBREnvironment->Clear(myContext);
+    myContext->Messenger()->SendInfo() << "Metal_View: IBL enabled with default ambient";
+  }
+
+  myBackBufferRestored = false;
 }
 
 // =======================================================================

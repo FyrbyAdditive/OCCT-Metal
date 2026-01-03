@@ -294,8 +294,9 @@ Metal_PBREnvironment::~Metal_PBREnvironment()
 
 //=================================================================================================
 
-void Metal_PBREnvironment::Release()
+void Metal_PBREnvironment::Release(Metal_Context* theCtx)
 {
+  (void)theCtx;
   mySpecularMap = nil;
   myDiffuseMap = nil;
   myDiffuseSHTexture = nil;

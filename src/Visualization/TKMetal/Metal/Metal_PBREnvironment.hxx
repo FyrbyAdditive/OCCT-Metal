@@ -101,7 +101,10 @@ public:
   Standard_EXPORT virtual Standard_Size EstimatedDataSize() const Standard_OVERRIDE;
 
   //! Releases Metal resources.
-  Standard_EXPORT virtual void Release() Standard_OVERRIDE;
+  Standard_EXPORT virtual void Release(Metal_Context* theCtx) Standard_OVERRIDE;
+
+  //! Releases Metal resources (convenience overload).
+  void Release() { Release(nullptr); }
 
 #ifdef __OBJC__
   //! Returns the specular IBL cubemap texture.

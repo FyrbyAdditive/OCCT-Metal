@@ -44,6 +44,10 @@ set(OCCT_Metal_FILES
   Metal_LayerList.hxx
   Metal_LayerList.mm
   Metal_LineAttribs.hxx
+  Metal_OIT.hxx
+  Metal_OIT.mm
+  Metal_PBREnvironment.hxx
+  Metal_PBREnvironment.mm
   Metal_PointSprite.hxx
   Metal_PointSprite.mm
   Metal_PostProcess.hxx
