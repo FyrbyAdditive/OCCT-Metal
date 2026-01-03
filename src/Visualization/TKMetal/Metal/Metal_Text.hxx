@@ -107,6 +107,16 @@ protected:
                                  const Graphic3d_Aspects& theAspect,
                                  const NCollection_Vec4<float>& theColor) const;
 
+  //! Draw text glyphs with pixel offset for shadow effects.
+  //! @param theCtx context
+  //! @param theAspect aspects
+  //! @param theColor text color
+  //! @param theOffset pixel offset (x, y, 0)
+  Standard_EXPORT void drawTextWithOffset(Metal_Context* theCtx,
+                                           const Graphic3d_Aspects& theAspect,
+                                           const NCollection_Vec4<float>& theColor,
+                                           const NCollection_Vec3<float>& theOffset) const;
+
   //! Setup model-view matrix.
   Standard_EXPORT void setupMatrix(Metal_Context* theCtx,
                                     const Graphic3d_Aspects& theAspect,
@@ -152,6 +162,7 @@ protected:
   mutable NCollection_Mat4<double> myOrientationMatrix; //!< orientation matrix
   mutable NCollection_Mat4<double> myModelMatrix;       //!< model-view matrix
   mutable NCollection_Vec3<double> myWinXYZ;            //!< window coordinates
+  mutable NCollection_Vec3<float> myTextOffset;         //!< current pixel offset for shadow rendering
 
 };
 

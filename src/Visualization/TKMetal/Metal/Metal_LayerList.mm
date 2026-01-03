@@ -511,10 +511,26 @@ void Metal_LayerList::SetLayerSettings(const Graphic3d_ZLayerId        theLayerI
 void Metal_LayerList::UpdateCulling(const occ::handle<Metal_Workspace>& theWorkspace,
                                     const bool                          theToDrawImmediate)
 {
-  // Culling update - simplified for now since BVHTreeSelector is not yet implemented in Metal_View
-  // This will be enhanced when view frustum culling is fully implemented
-  (void)theWorkspace;
-  (void)theToDrawImmediate;
+  // Phase 7: View Frustum Culling
+  // Update culling state for all layers using BVH tree selector
+  const int                    aViewId   = theWorkspace->View()->Identification();
+  const Graphic3d_CullingTool& aSelector = theWorkspace->View()->BVHTreeSelector();
+
+  for (NCollection_List<occ::handle<Graphic3d_Layer>>::Iterator aLayerIter(myLayers);
+       aLayerIter.More();
+       aLayerIter.Next())
+  {
+    const occ::handle<Graphic3d_Layer>& aLayer = aLayerIter.ChangeValue();
+    if (aLayer->IsImmediate() != theToDrawImmediate)
+    {
+      continue;
+    }
+
+    // Update culling for this layer using the view frustum from the BVH selector
+    aLayer->UpdateCulling(aViewId,
+                          aSelector,
+                          theWorkspace->View()->RenderingParams().FrustumCullingState);
+  }
 }
 
 //=================================================================================================

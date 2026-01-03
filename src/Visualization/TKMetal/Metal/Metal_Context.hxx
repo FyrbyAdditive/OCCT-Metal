@@ -288,6 +288,12 @@ public: //! @name Render state management
   //! Set shader manager.
   void SetShaderManager(class Metal_ShaderManager* theManager) { myShaderManager = theManager; }
 
+  //! Return frame statistics.
+  const occ::handle<class Metal_FrameStats>& FrameStats() const { return myFrameStats; }
+
+  //! Set frame statistics object.
+  void SetFrameStats(const occ::handle<class Metal_FrameStats>& theStats) { myFrameStats = theStats; }
+
 public: //! @name State classes for tracking matrix state
 
   //! Matrix state template for model/view/projection matrices.
@@ -307,6 +313,18 @@ public: //! @name State classes for tracking matrix state
   MatrixState<NCollection_Mat4<float>> WorldViewState;   //!< world-view matrix state
   MatrixState<NCollection_Mat4<float>> ProjectionState;  //!< projection matrix state
   MatrixState<NCollection_Mat4<float>> ModelWorldState;  //!< model-world matrix state
+
+  //! Return current viewport (x, y, width, height).
+  const int* Viewport() const { return myViewport; }
+
+  //! Set current viewport.
+  void SetViewport(int theX, int theY, int theWidth, int theHeight)
+  {
+    myViewport[0] = theX;
+    myViewport[1] = theY;
+    myViewport[2] = theWidth;
+    myViewport[3] = theHeight;
+  }
 
 public: //! @name Diagnostics
 
@@ -379,9 +397,11 @@ private:
   int                     myBlendSrcAlpha;        //!< Blend source alpha factor
   int                     myBlendDstAlpha;        //!< Blend destination alpha factor
   bool                    myColorMask;            //!< Color write mask
+  int                     myViewport[4];          //!< Current viewport (x, y, width, height)
 
   occ::handle<Graphic3d_Camera> myCamera;         //!< Current camera
   class Metal_ShaderManager* myShaderManager;     //!< Shader manager
+  occ::handle<class Metal_FrameStats> myFrameStats; //!< Frame statistics
 };
 
 #endif // Metal_Context_HeaderFile

@@ -69,6 +69,11 @@ Metal_Context::Metal_Context(const occ::handle<Metal_Caps>& theCaps)
   myColorMask(true),
   myShaderManager(nullptr)
 {
+  myViewport[0] = 0;
+  myViewport[1] = 0;
+  myViewport[2] = 0;
+  myViewport[3] = 0;
+
   if (myCaps.IsNull())
   {
     myCaps = new Metal_Caps();

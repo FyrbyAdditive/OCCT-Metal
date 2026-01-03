@@ -16,9 +16,12 @@
 
 #include <Standard_Transient.hxx>
 #include <Standard_Handle.hxx>
+#include <Graphic3d_Aspects.hxx>
 #include <Graphic3d_AspectText3d.hxx>
+#include <Graphic3d_TransformPers.hxx>
 #include <TCollection_AsciiString.hxx>
 #include <NCollection_Vec2.hxx>
+#include <Metal_Text.hxx>
 
 #ifdef __OBJC__
 @protocol MTLBuffer;
@@ -114,9 +117,12 @@ protected:
 
 protected:
 
-  occ::handle<Graphic3d_AspectText3d> myTextAspect; //!< text rendering aspect
-  TCollection_AsciiString myStatsText;              //!< formatted stats text
-  NCollection_Vec2<float> myPosition;               //!< position in viewport (0-1)
+  occ::handle<Graphic3d_AspectText3d> myTextAspect;      //!< text rendering aspect
+  Graphic3d_Aspects        myAspects;                    //!< rendering aspects
+  occ::handle<Metal_Text>  myCountersText;               //!< counters text element
+  occ::handle<Graphic3d_TransformPers> myCountersTrsfPers; //!< transform persistence for counters
+  TCollection_AsciiString  myStatsText;                  //!< formatted stats text
+  NCollection_Vec2<float>  myPosition;                   //!< position in viewport (0-1)
   int     myChartWidth;   //!< chart width in pixels
   int     myChartHeight;  //!< chart height in pixels
   bool    myShowChart;    //!< show performance chart

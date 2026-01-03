@@ -206,13 +206,26 @@ void Metal_Clipping::GetPlaneEquations(float* thePlanes, int& theCount) const
 
 // =======================================================================
 // function : recalculatePlanes
-// purpose  : Recalculate plane equations
+// purpose  : Recalculate plane equations transformed to view space
 // =======================================================================
 void Metal_Clipping::recalculatePlanes()
 {
-  // Transform plane equations by world-view matrix if needed
-  // For now, planes are kept in world space
-  // This would be used for proper clipping in view space
+  // Transform plane equations from world space to view space
+  // A plane P in world space transforms to P' = (M^-T) * P
+  // where M is the world-view matrix
+  //
+  // For a 4x4 matrix stored column-major:
+  // [m0  m4  m8  m12]
+  // [m1  m5  m9  m13]
+  // [m2  m6  m10 m14]
+  // [m3  m7  m11 m15]
+  //
+  // The inverse-transpose for the upper-left 3x3 (orthonormal rotation)
+  // is just the transpose. For plane equation (A, B, C, D):
+  // - The normal (A, B, C) is transformed by the 3x3 inverse-transpose
+  // - The D component needs adjustment for translation
+
+  const float* m = myWorldViewMatrix;
 
   for (int i = 0; i < myPlanes.Length(); ++i)
   {
@@ -223,12 +236,39 @@ void Metal_Clipping::recalculatePlanes()
     }
 
     Metal_ClippingPlaneData& aData = myPlaneData.ChangeValue(i);
-
     const NCollection_Vec4<double>& anEq = aPlane->GetEquation();
-    aData.Equation[0] = static_cast<float>(anEq.x());
-    aData.Equation[1] = static_cast<float>(anEq.y());
-    aData.Equation[2] = static_cast<float>(anEq.z());
-    aData.Equation[3] = static_cast<float>(anEq.w());
+
+    // Get plane equation in world space
+    float a = static_cast<float>(anEq.x());
+    float b = static_cast<float>(anEq.y());
+    float c = static_cast<float>(anEq.z());
+    float d = static_cast<float>(anEq.w());
+
+    // Transform plane to view space using M^(-T)
+    // For orthonormal matrices (rotation only), M^(-T) = M
+    // For general case with translation, we need:
+    // n' = R^T * n (where R is 3x3 rotation part)
+    // d' = d - dot(t, n) (where t is translation)
+    //
+    // Since we're using column-major storage and M is world-view:
+    // Rotation is in m[0-2], m[4-6], m[8-10] (columns)
+    // Translation is in m[12-14]
+
+    // Transform normal by transpose of upper-left 3x3
+    float ax = m[0] * a + m[1] * b + m[2] * c;
+    float ay = m[4] * a + m[5] * b + m[6] * c;
+    float az = m[8] * a + m[9] * b + m[10] * c;
+
+    // Transform D: d' = d - dot(translation, original_normal)
+    float tx = m[12];
+    float ty = m[13];
+    float tz = m[14];
+    float ad = d - (tx * a + ty * b + tz * c);
+
+    aData.Equation[0] = ax;
+    aData.Equation[1] = ay;
+    aData.Equation[2] = az;
+    aData.Equation[3] = ad;
     aData.IsEnabled = aPlane->IsOn() ? 1 : 0;
   }
 }

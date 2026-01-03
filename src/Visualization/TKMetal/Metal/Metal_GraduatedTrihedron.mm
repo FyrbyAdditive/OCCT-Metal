@@ -60,37 +60,13 @@ namespace
 }
 
 // =======================================================================
-// function : Render
-// purpose  : Render graduated trihedron
+// function : buildBuffers
+// purpose  : Build cached geometry buffers
 // =======================================================================
-void Metal_GraduatedTrihedron::Render(Metal_Workspace* theWorkspace,
-                                       const NCollection_Vec3<float>& theMin,
-                                       const NCollection_Vec3<float>& theMax)
+void Metal_GraduatedTrihedron::buildBuffers(id<MTLDevice> theDevice,
+                                             const NCollection_Vec3<float>& theMin,
+                                             const NCollection_Vec3<float>& theMax)
 {
-  if (!myIsEnabled || theWorkspace == nullptr)
-  {
-    return;
-  }
-
-  id<MTLRenderCommandEncoder> anEncoder = theWorkspace->ActiveEncoder();
-  if (anEncoder == nil)
-  {
-    return;
-  }
-
-  Metal_Context* aCtx = theWorkspace->Context();
-  if (aCtx == nullptr)
-  {
-    return;
-  }
-
-  // Get device from context
-  id<MTLDevice> aDevice = aCtx->Device();
-  if (aDevice == nil)
-  {
-    return;
-  }
-
   // Compute bounding box dimensions
   NCollection_Vec3<float> aSize = theMax - theMin;
   NCollection_Vec3<float> aOrigin = theMin;
@@ -217,34 +193,92 @@ void Metal_GraduatedTrihedron::Render(Metal_Workspace* theWorkspace,
     }
   }
 
-  // Only draw if we have vertices
+  // Release old buffers
+  myCachedPositionBuffer = nil;
+  myCachedColorBuffer = nil;
+  myCachedVertexCount = 0;
+
+  // Only create buffers if we have vertices
   if (aPositions.empty())
   {
     return;
   }
 
-  // Create buffers
+  // Create new buffers
   NSUInteger aPositionSize = aPositions.size() * sizeof(float);
   NSUInteger aColorSize = aColors.size() * sizeof(float);
 
-  id<MTLBuffer> aPosBuffer = [aDevice newBufferWithBytes:aPositions.data()
-                                                   length:aPositionSize
-                                                  options:MTLResourceStorageModeShared];
-  id<MTLBuffer> aColorBuffer = [aDevice newBufferWithBytes:aColors.data()
-                                                     length:aColorSize
-                                                    options:MTLResourceStorageModeShared];
+  myCachedPositionBuffer = [theDevice newBufferWithBytes:aPositions.data()
+                                                  length:aPositionSize
+                                                 options:MTLResourceStorageModeShared];
+  myCachedColorBuffer = [theDevice newBufferWithBytes:aColors.data()
+                                               length:aColorSize
+                                              options:MTLResourceStorageModeShared];
+  myCachedVertexCount = aPositions.size() / 3;
+
+  // Update cached bounds
+  myCachedMin = theMin;
+  myCachedMax = theMax;
+  myNeedsRebuild = false;
+}
+
+// =======================================================================
+// function : Render
+// purpose  : Render graduated trihedron
+// =======================================================================
+void Metal_GraduatedTrihedron::Render(Metal_Workspace* theWorkspace,
+                                       const NCollection_Vec3<float>& theMin,
+                                       const NCollection_Vec3<float>& theMax)
+{
+  if (!myIsEnabled || theWorkspace == nullptr)
+  {
+    return;
+  }
+
+  id<MTLRenderCommandEncoder> anEncoder = theWorkspace->ActiveEncoder();
+  if (anEncoder == nil)
+  {
+    return;
+  }
+
+  Metal_Context* aCtx = theWorkspace->Context();
+  if (aCtx == nullptr)
+  {
+    return;
+  }
+
+  // Get device from context
+  id<MTLDevice> aDevice = aCtx->Device();
+  if (aDevice == nil)
+  {
+    return;
+  }
+
+  // Check if we need to rebuild buffers (bounds changed or settings changed)
+  bool aBoundsChanged = (theMin.x() != myCachedMin.x() || theMin.y() != myCachedMin.y() || theMin.z() != myCachedMin.z() ||
+                         theMax.x() != myCachedMax.x() || theMax.y() != myCachedMax.y() || theMax.z() != myCachedMax.z());
+
+  if (myNeedsRebuild || aBoundsChanged || myCachedPositionBuffer == nil)
+  {
+    buildBuffers(aDevice, theMin, theMax);
+  }
+
+  // Only draw if we have vertices
+  if (myCachedVertexCount == 0 || myCachedPositionBuffer == nil)
+  {
+    return;
+  }
 
   // Apply matrices as uniforms
   // The workspace already has model-view and projection matrices set
   theWorkspace->ApplyUniforms();
 
   // Set vertex buffers
-  [anEncoder setVertexBuffer:aPosBuffer offset:0 atIndex:0];
-  [anEncoder setVertexBuffer:aColorBuffer offset:0 atIndex:1];
+  [anEncoder setVertexBuffer:myCachedPositionBuffer offset:0 atIndex:0];
+  [anEncoder setVertexBuffer:myCachedColorBuffer offset:0 atIndex:1];
 
   // Draw lines (2 vertices per line)
-  NSUInteger aVertexCount = aPositions.size() / 3;
-  [anEncoder drawPrimitives:MTLPrimitiveTypeLine vertexStart:0 vertexCount:aVertexCount];
+  [anEncoder drawPrimitives:MTLPrimitiveTypeLine vertexStart:0 vertexCount:myCachedVertexCount];
 }
 
 // =======================================================================
@@ -253,6 +287,9 @@ void Metal_GraduatedTrihedron::Render(Metal_Workspace* theWorkspace,
 // =======================================================================
 void Metal_GraduatedTrihedron::Release(Metal_Context* /*theCtx*/)
 {
-  // Release any cached buffers
-  // For now, we create buffers on each render - could be optimized
+  // Release cached buffers
+  myCachedPositionBuffer = nil;
+  myCachedColorBuffer = nil;
+  myCachedVertexCount = 0;
+  myNeedsRebuild = true;
 }

@@ -17,6 +17,9 @@
 #include <Metal_FrameStats.hxx>
 #include <Metal_Context.hxx>
 #include <Metal_Workspace.hxx>
+#include <Metal_View.hxx>
+#include <Aspect_TypeOfTriedronPosition.hxx>
+#include <Graphic3d_Text.hxx>
 
 #include <cstdio>
 #include <cstring>
@@ -38,6 +41,20 @@ Metal_FrameStatsPrs::Metal_FrameStatsPrs()
   myChartBuffer(nil)
 {
   memset(myFpsHistory, 0, sizeof(myFpsHistory));
+
+  // Initialize transform persistence for upper-left corner
+  myCountersTrsfPers = new Graphic3d_TransformPers(
+    Graphic3d_TMF_2d,
+    Aspect_TOTP_LEFT_UPPER,
+    NCollection_Vec2<int>(20, 20));
+
+  // Create text element with placeholder text
+  occ::handle<Graphic3d_Text> aTextParams = new Graphic3d_Text(14.0f);
+  aTextParams->SetText("FPS: --");
+  aTextParams->SetHorizontalAlignment(Graphic3d_HTA_LEFT);
+  aTextParams->SetVerticalAlignment(Graphic3d_VTA_TOP);
+  myCountersText = new Metal_Text(aTextParams);
+  myCountersText->Set2D(true);
 }
 
 // =======================================================================
@@ -53,8 +70,12 @@ Metal_FrameStatsPrs::~Metal_FrameStatsPrs()
 // function : Release
 // purpose  : Release Metal resources
 // =======================================================================
-void Metal_FrameStatsPrs::Release(Metal_Context* /*theCtx*/)
+void Metal_FrameStatsPrs::Release(Metal_Context* theCtx)
 {
+  if (!myCountersText.IsNull())
+  {
+    myCountersText->Release(theCtx);
+  }
   myTextBuffer = nil;
   myChartBuffer = nil;
 }
@@ -70,11 +91,54 @@ void Metal_FrameStatsPrs::Update(const occ::handle<Metal_Workspace>& theWorkspac
     return;
   }
 
-  // Get frame stats from workspace
-  // For now, create placeholder text
-  occ::handle<Metal_FrameStats> aStats; // = theWorkspace->FrameStats();
+  // Get frame stats from context
+  Metal_Context* aCtx = theWorkspace->Context();
+  occ::handle<Metal_FrameStats> aStats = aCtx != nullptr ? aCtx->FrameStats() : nullptr;
+
+  // Update transform persistence from view rendering params
+  Metal_View* aView = theWorkspace->View();
+  if (aView != nullptr)
+  {
+    myCountersTrsfPers = aView->RenderingParams().StatsPosition;
+    if (myTextAspect.IsNull())
+    {
+      myTextAspect = aView->RenderingParams().StatsTextAspect;
+    }
+  }
 
   buildText(aStats);
+
+  // Update the counters text element
+  if (!myCountersText.IsNull())
+  {
+    occ::handle<Graphic3d_Text> aText = myCountersText->Text();
+    if (!aText.IsNull())
+    {
+      aText->SetText(myStatsText.ToCString());
+
+      // Adjust alignment based on corner
+      if (!myCountersTrsfPers.IsNull())
+      {
+        const int aCorner = myCountersTrsfPers->Corner2d();
+        if ((aCorner & Aspect_TOTP_LEFT) != 0)
+        {
+          aText->SetHorizontalAlignment(Graphic3d_HTA_LEFT);
+        }
+        else if ((aCorner & Aspect_TOTP_RIGHT) != 0)
+        {
+          aText->SetHorizontalAlignment(Graphic3d_HTA_RIGHT);
+        }
+        if ((aCorner & Aspect_TOTP_TOP) != 0)
+        {
+          aText->SetVerticalAlignment(Graphic3d_VTA_TOP);
+        }
+        else if ((aCorner & Aspect_TOTP_BOTTOM) != 0)
+        {
+          aText->SetVerticalAlignment(Graphic3d_VTA_BOTTOM);
+        }
+      }
+    }
+  }
 
   if (myShowChart)
   {
@@ -141,11 +205,37 @@ void Metal_FrameStatsPrs::buildChart(const occ::handle<Metal_FrameStats>& /*theS
 // function : Render
 // purpose  : Render statistics overlay
 // =======================================================================
-void Metal_FrameStatsPrs::Render(const occ::handle<Metal_Workspace>& /*theWorkspace*/) const
+void Metal_FrameStatsPrs::Render(const occ::handle<Metal_Workspace>& theWorkspace) const
 {
-  // Text rendering using Metal_Text would go here
-  // This is a stub - actual implementation would use workspace's
-  // text rendering facilities
+  if (theWorkspace.IsNull() || myCountersText.IsNull())
+  {
+    return;
+  }
+
+  Metal_Context* aCtx = theWorkspace->Context();
+  if (aCtx == nullptr)
+  {
+    return;
+  }
+
+  // Disable depth writing for overlay
+  const bool wasDepthWrite = aCtx->DepthMask();
+  if (wasDepthWrite)
+  {
+    aCtx->SetDepthMask(false);
+  }
+
+  // Apply transform persistence for 2D positioning
+  // Note: Metal_Text with 2D mode handles screen-space positioning
+
+  // Render the counters text
+  myCountersText->Render(theWorkspace.get());
+
+  // Restore depth write state
+  if (wasDepthWrite)
+  {
+    aCtx->SetDepthMask(wasDepthWrite);
+  }
 }
 
 // =======================================================================

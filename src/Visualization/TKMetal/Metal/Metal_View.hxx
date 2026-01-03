@@ -15,6 +15,7 @@
 #define Metal_View_HeaderFile
 
 #include <Graphic3d_CStructure.hxx>
+#include <Graphic3d_CullingTool.hxx>
 #include <Graphic3d_CView.hxx>
 #include <Graphic3d_DisplayPriority.hxx>
 #include <Graphic3d_GraduatedTrihedron.hxx>
@@ -194,6 +195,12 @@ public: //! @name Lights and Clipping
   //! Sets list of clip planes for the view.
   Standard_EXPORT void SetClipPlanes(const occ::handle<Graphic3d_SequenceOfHClipPlane>& thePlanes) override;
 
+public: //! @name View Frustum Culling
+
+  //! Returns selector for BVH tree, providing a possibility to store information
+  //! about current view volume and to detect which objects are overlapping it.
+  const Graphic3d_CullingTool& BVHTreeSelector() const { return myBVHSelector; }
+
 public: //! @name Diagnostics
 
   //! Fill in the dictionary with diagnostic info.
@@ -291,6 +298,9 @@ protected:
 #endif
   int                               myDepthWidth;         //!< Depth texture width
   int                               myDepthHeight;        //!< Depth texture height
+
+  // View frustum culling
+  Graphic3d_CullingTool             myBVHSelector;        //!< Selector for BVH tree frustum culling
 };
 
 #endif // Metal_View_HeaderFile

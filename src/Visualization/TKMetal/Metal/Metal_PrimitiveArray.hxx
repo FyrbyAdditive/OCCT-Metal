@@ -84,6 +84,16 @@ public:
 
 protected:
 
+  //! Build edge index buffer from triangle indices for wireframe rendering.
+  //! Extracts unique edges from triangle mesh.
+  void buildEdgeIndices(Metal_Context* theCtx);
+
+  //! Convert triangle fan indices to triangle list indices.
+  //! Metal doesn't support triangle fans, so we expand them.
+  void convertTriangleFan(Metal_Context* theCtx);
+
+protected:
+
   Graphic3d_TypeOfPrimitiveArray       myType;           //!< primitive type
   occ::handle<Graphic3d_Buffer>        myAttribs;        //!< CPU attribute data
   occ::handle<Graphic3d_IndexBuffer>   myIndices;        //!< CPU index data
@@ -93,11 +103,15 @@ protected:
   occ::handle<Metal_VertexBuffer>      myNormalVbo;      //!< normal buffer
   occ::handle<Metal_VertexBuffer>      myColorVbo;       //!< color buffer
   occ::handle<Metal_VertexBuffer>      myTexCoordVbo;    //!< texture coordinate buffer
-  occ::handle<Metal_IndexBuffer>       myIndexBuffer;    //!< index buffer
+  occ::handle<Metal_IndexBuffer>       myIndexBuffer;         //!< index buffer
+  occ::handle<Metal_IndexBuffer>       myEdgeIndexBuffer;     //!< edge index buffer for unique edges
+  occ::handle<Metal_IndexBuffer>       myConvertedFanBuffer;  //!< converted triangle fan -> triangles
 
-  int  myNbVertices;    //!< number of vertices
-  int  myNbIndices;     //!< number of indices
-  bool myIsInitialized; //!< initialization flag
+  int  myNbVertices;       //!< number of vertices
+  int  myNbIndices;        //!< number of indices
+  int  myNbEdgeIndices;    //!< number of edge indices (unique edges * 2)
+  int  myNbFanTriIndices;  //!< number of converted triangle fan indices
+  bool myIsInitialized;    //!< initialization flag
 };
 
 #endif // Metal_PrimitiveArray_HeaderFile

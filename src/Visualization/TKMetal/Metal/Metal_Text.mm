@@ -26,6 +26,8 @@
 #include <Graphic3d_TransformUtils.hxx>
 #include <TCollection_HAsciiString.hxx>
 
+#include <cmath>
+
 IMPLEMENT_STANDARD_RTTIEXT(Metal_Text, Standard_Transient)
 
 namespace
@@ -50,7 +52,8 @@ Metal_Text::Metal_Text(const occ::handle<Graphic3d_Text>& theTextParams)
 : myText(theTextParams),
   myIs2D(false),
   myScaleHeight(1.0f),
-  myBndVertsBuffer(nil)
+  myBndVertsBuffer(nil),
+  myTextOffset(0.0f, 0.0f, 0.0f)
 {
   //
 }
@@ -397,6 +400,33 @@ void Metal_Text::render(Metal_Context* theCtx,
     return;
   }
 
+  // Initialize matrices from context
+  // For 3D text, we need proper model-view-projection matrices to compute scale
+  if (!myIs2D)
+  {
+    // Get current model-view matrix (world-view * model-world)
+    // Convert from float to double for precision
+    const NCollection_Mat4<float> aModelViewF =
+      theCtx->WorldViewState.Current() * theCtx->ModelWorldState.Current();
+    for (int i = 0; i < 4; ++i)
+    {
+      for (int j = 0; j < 4; ++j)
+      {
+        myModelMatrix.SetValue(i, j, static_cast<double>(aModelViewF.GetValue(i, j)));
+      }
+    }
+
+    // Get projection matrix
+    const NCollection_Mat4<float>& aProjF = theCtx->ProjectionState.Current();
+    for (int i = 0; i < 4; ++i)
+    {
+      for (int j = 0; j < 4; ++j)
+      {
+        myProjMatrix.SetValue(i, j, static_cast<double>(aProjF.GetValue(i, j)));
+      }
+    }
+  }
+
   // Build glyph geometry if needed
   if (myVertsBuffers.IsEmpty())
   {
@@ -527,10 +557,60 @@ void Metal_Text::render(Metal_Context* theCtx,
   myScaleHeight = 1.0f;
 
   // For 3D text, compute scale for constant height on screen
-  if (!myIs2D)
+  if (!myIs2D && !theAspect.IsTextZoomable())
   {
-    // TODO: Implement full 3D text transformation
-    // For now, just render at fixed scale
+    // Get text height in pixels
+    const double aPointSize = static_cast<double>(myFont->FTFont()->PointSize());
+
+    // Get text position
+    const gp_Pnt& aPoint = myText->Position();
+
+    // Get viewport from context
+    const int* aCtxViewport = theCtx->Viewport();
+    int aViewport[4];
+    if (aCtxViewport[2] > 0 && aCtxViewport[3] > 0)
+    {
+      aViewport[0] = aCtxViewport[0];
+      aViewport[1] = aCtxViewport[1];
+      aViewport[2] = aCtxViewport[2];
+      aViewport[3] = aCtxViewport[3];
+    }
+    else
+    {
+      // Fallback if viewport not set
+      aViewport[0] = 0;
+      aViewport[1] = 0;
+      aViewport[2] = 800;
+      aViewport[3] = 600;
+    }
+
+    // Project 3D position to window coordinates
+    Graphic3d_TransformUtils::Project<double>(
+      aPoint.X(), aPoint.Y(), aPoint.Z(),
+      myModelMatrix, myProjMatrix, aViewport,
+      myWinXYZ.x(), myWinXYZ.y(), myWinXYZ.z());
+
+    // Compute scale factor for constant screen height
+    // UnProject two points at same window X,Z but different Y to get world distance
+    static const NCollection_Mat4<double> THE_IDENTITY_MATRIX;
+    NCollection_Vec3<double> aPnt1, aPnt2;
+
+    Graphic3d_TransformUtils::UnProject<double>(
+      myWinXYZ.x(), myWinXYZ.y(), myWinXYZ.z(),
+      THE_IDENTITY_MATRIX, myProjMatrix, aViewport,
+      aPnt1.x(), aPnt1.y(), aPnt1.z());
+
+    Graphic3d_TransformUtils::UnProject<double>(
+      myWinXYZ.x(), myWinXYZ.y() + aPointSize, myWinXYZ.z(),
+      THE_IDENTITY_MATRIX, myProjMatrix, aViewport,
+      aPnt2.x(), aPnt2.y(), aPnt2.z());
+
+    // Scale factor = world distance per pixel
+    double aDeltaY = aPnt2.y() - aPnt1.y();
+    if (std::abs(aDeltaY) > 1e-10 && std::abs(aPointSize) > 1e-10)
+    {
+      myScaleHeight = static_cast<float>(aDeltaY / aPointSize);
+    }
   }
 
   // Render based on display type
@@ -543,14 +623,18 @@ void Metal_Text::render(Metal_Context* theCtx,
     }
     case Aspect_TODT_DEKALE:
     {
-      // Draw shadow copies in 4 directions
-      // TODO: implement offset rendering
+      // Draw shadow copies in 4 directions (3D style effect)
+      // Using subtitle color for the shadow
+      drawTextWithOffset(theCtx, theAspect, theColorSubs, NCollection_Vec3<float>(+1.0f, +1.0f, 0.0f));
+      drawTextWithOffset(theCtx, theAspect, theColorSubs, NCollection_Vec3<float>(-1.0f, -1.0f, 0.0f));
+      drawTextWithOffset(theCtx, theAspect, theColorSubs, NCollection_Vec3<float>(-1.0f, +1.0f, 0.0f));
+      drawTextWithOffset(theCtx, theAspect, theColorSubs, NCollection_Vec3<float>(+1.0f, -1.0f, 0.0f));
       break;
     }
     case Aspect_TODT_SHADOW:
     {
-      // Draw shadow copy
-      // TODO: implement shadow rendering
+      // Draw shadow copy at bottom-right
+      drawTextWithOffset(theCtx, theAspect, theColorSubs, NCollection_Vec3<float>(+1.0f, -1.0f, 0.0f));
       break;
     }
     case Aspect_TODT_BLEND:
@@ -560,7 +644,9 @@ void Metal_Text::render(Metal_Context* theCtx,
       break;
   }
 
-  // Draw main text
+  // Draw main text (reset offset to zero)
+  myTextOffset = NCollection_Vec3<float>(0.0f, 0.0f, 0.0f);
+  setupMatrix(theCtx, theAspect, myTextOffset);
   drawText(theCtx, theAspect);
 }
 
@@ -597,6 +683,28 @@ void Metal_Text::drawRect(Metal_Context* theCtx,
   (void)theCtx;
   (void)theAspect;
   (void)theColor;
+}
+
+// =======================================================================
+// function : drawTextWithOffset
+// purpose  : Draw text glyphs with pixel offset for shadow effects
+// =======================================================================
+void Metal_Text::drawTextWithOffset(Metal_Context* theCtx,
+                                     const Graphic3d_Aspects& theAspect,
+                                     const NCollection_Vec4<float>& theColor,
+                                     const NCollection_Vec3<float>& theOffset) const
+{
+  // Store the offset for use during rendering
+  myTextOffset = theOffset;
+
+  // Setup matrix with the offset and draw
+  setupMatrix(theCtx, theAspect, theOffset);
+  drawText(theCtx, theAspect);
+
+  // Note: The actual offset is applied via the matrix transform.
+  // For 2D text, the offset is in screen pixels.
+  // For 3D text, the offset needs to be transformed to world space.
+  (void)theColor; // Color is set separately via context state
 }
 
 // =======================================================================

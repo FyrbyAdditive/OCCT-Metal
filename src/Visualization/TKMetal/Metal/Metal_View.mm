@@ -247,6 +247,17 @@ void Metal_View::Redraw()
   aViewport.zfar = 1.0;
   [aRenderEncoder setViewport:aViewport];
 
+  // Store viewport in context for 3D text and other transformations
+  myContext->SetViewport(0, 0, aWidth, aHeight);
+
+  // Update BVH tree selector for frustum culling (Phase 7)
+  if (!myCamera.IsNull())
+  {
+    myBVHSelector.SetViewVolume(myCamera);
+    myBVHSelector.SetViewportSize(aWidth, aHeight, myRenderParams.ResolutionRatio());
+    myBVHSelector.CacheClipPtsProjections();
+  }
+
   // Draw textured background if enabled (takes priority over gradient)
   if (!myBgTexture.IsNull())
   {

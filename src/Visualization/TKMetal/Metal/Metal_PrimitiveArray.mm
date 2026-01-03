@@ -17,6 +17,10 @@
 #include <Metal_Context.hxx>
 #include <Metal_Workspace.hxx>
 
+#include <set>
+#include <vector>
+#include <algorithm>
+
 // =======================================================================
 // function : Metal_PrimitiveArray
 // purpose  : Constructor
@@ -32,6 +36,8 @@ Metal_PrimitiveArray::Metal_PrimitiveArray(
   myBounds(theBounds),
   myNbVertices(0),
   myNbIndices(0),
+  myNbEdgeIndices(0),
+  myNbFanTriIndices(0),
   myIsInitialized(false)
 {
   if (!myAttribs.IsNull())
@@ -144,6 +150,18 @@ bool Metal_PrimitiveArray::Init(Metal_Context* theCtx)
     {
       return false;
     }
+
+    // Generate unique edge indices for triangle primitives
+    if (myType == Graphic3d_TOPA_TRIANGLES)
+    {
+      buildEdgeIndices(theCtx);
+    }
+
+    // Convert triangle fans to triangle list (Metal doesn't support fans)
+    if (myType == Graphic3d_TOPA_TRIANGLEFANS)
+    {
+      convertTriangleFan(theCtx);
+    }
   }
 
   myIsInitialized = true;
@@ -181,8 +199,214 @@ void Metal_PrimitiveArray::Release(Metal_Context* theCtx)
     myIndexBuffer->Release(theCtx);
     myIndexBuffer.Nullify();
   }
+  if (!myEdgeIndexBuffer.IsNull())
+  {
+    myEdgeIndexBuffer->Release(theCtx);
+    myEdgeIndexBuffer.Nullify();
+  }
+  if (!myConvertedFanBuffer.IsNull())
+  {
+    myConvertedFanBuffer->Release(theCtx);
+    myConvertedFanBuffer.Nullify();
+  }
+  myNbEdgeIndices = 0;
+  myNbFanTriIndices = 0;
 
   myIsInitialized = false;
+}
+
+// =======================================================================
+// function : buildEdgeIndices
+// purpose  : Build edge index buffer from triangle indices
+// =======================================================================
+void Metal_PrimitiveArray::buildEdgeIndices(Metal_Context* theCtx)
+{
+  if (myIndices.IsNull() || myIndices->NbElements < 3)
+  {
+    return;
+  }
+
+  const int aNbTriangles = static_cast<int>(myIndices->NbElements) / 3;
+  if (aNbTriangles == 0)
+  {
+    return;
+  }
+
+  // Edge represented as pair of vertex indices (always smaller index first)
+  struct Edge
+  {
+    uint32_t v0, v1;
+    Edge(uint32_t a, uint32_t b) : v0(std::min(a, b)), v1(std::max(a, b)) {}
+    bool operator<(const Edge& other) const
+    {
+      return v0 < other.v0 || (v0 == other.v0 && v1 < other.v1);
+    }
+  };
+
+  std::set<Edge> aUniqueEdges;
+
+  // Extract edges from triangles
+  const bool is16bit = (myIndices->Stride == 2);
+  for (int iTri = 0; iTri < aNbTriangles; ++iTri)
+  {
+    uint32_t idx0, idx1, idx2;
+    if (is16bit)
+    {
+      const uint16_t* aPtr = reinterpret_cast<const uint16_t*>(myIndices->Data()) + iTri * 3;
+      idx0 = aPtr[0];
+      idx1 = aPtr[1];
+      idx2 = aPtr[2];
+    }
+    else
+    {
+      const uint32_t* aPtr = reinterpret_cast<const uint32_t*>(myIndices->Data()) + iTri * 3;
+      idx0 = aPtr[0];
+      idx1 = aPtr[1];
+      idx2 = aPtr[2];
+    }
+
+    // Add 3 edges per triangle (duplicates will be filtered by set)
+    aUniqueEdges.insert(Edge(idx0, idx1));
+    aUniqueEdges.insert(Edge(idx1, idx2));
+    aUniqueEdges.insert(Edge(idx2, idx0));
+  }
+
+  if (aUniqueEdges.empty())
+  {
+    return;
+  }
+
+  // Build edge index buffer (2 indices per edge for line primitive)
+  myNbEdgeIndices = static_cast<int>(aUniqueEdges.size()) * 2;
+
+  // Use 32-bit indices for the edge buffer (simpler, and edge count is typically much smaller)
+  std::vector<uint32_t> anEdgeIndices;
+  anEdgeIndices.reserve(myNbEdgeIndices);
+  for (const Edge& anEdge : aUniqueEdges)
+  {
+    anEdgeIndices.push_back(anEdge.v0);
+    anEdgeIndices.push_back(anEdge.v1);
+  }
+
+  // Create Metal index buffer for edges
+  myEdgeIndexBuffer = new Metal_IndexBuffer();
+  if (!myEdgeIndexBuffer->Init(theCtx, Metal_IndexType_UInt32,
+                               myNbEdgeIndices,
+                               anEdgeIndices.data()))
+  {
+    myEdgeIndexBuffer.Nullify();
+    myNbEdgeIndices = 0;
+  }
+}
+
+// =======================================================================
+// function : convertTriangleFan
+// purpose  : Convert triangle fan indices to triangle list indices
+// =======================================================================
+void Metal_PrimitiveArray::convertTriangleFan(Metal_Context* theCtx)
+{
+  // Triangle fan: first vertex is the center, subsequent vertices form triangles
+  // Fan with N vertices = N-2 triangles = (N-2)*3 indices
+  //
+  // For indexed fan: indices[0] is center, then indices[1,2,3,...] are fan vertices
+  // Triangle 0: indices[0], indices[1], indices[2]
+  // Triangle 1: indices[0], indices[2], indices[3]
+  // etc.
+  //
+  // For non-indexed fan: vertex 0 is center
+  // Triangle 0: 0, 1, 2
+  // Triangle 1: 0, 2, 3
+  // etc.
+
+  if (!myIndexBuffer.IsNull() && myIndexBuffer->IsValid() && myNbIndices >= 3)
+  {
+    // Indexed triangle fan
+    const int aNbTriangles = myNbIndices - 2;
+    if (aNbTriangles <= 0)
+    {
+      return;
+    }
+
+    myNbFanTriIndices = aNbTriangles * 3;
+    std::vector<uint32_t> aTriIndices;
+    aTriIndices.reserve(myNbFanTriIndices);
+
+    const bool is16bit = (myIndices->Stride == 2);
+
+    // Get center vertex index
+    uint32_t centerIdx;
+    if (is16bit)
+    {
+      centerIdx = reinterpret_cast<const uint16_t*>(myIndices->Data())[0];
+    }
+    else
+    {
+      centerIdx = reinterpret_cast<const uint32_t*>(myIndices->Data())[0];
+    }
+
+    // Build triangles from fan
+    for (int iTri = 0; iTri < aNbTriangles; ++iTri)
+    {
+      uint32_t idx1, idx2;
+      if (is16bit)
+      {
+        const uint16_t* aPtr = reinterpret_cast<const uint16_t*>(myIndices->Data());
+        idx1 = aPtr[iTri + 1];
+        idx2 = aPtr[iTri + 2];
+      }
+      else
+      {
+        const uint32_t* aPtr = reinterpret_cast<const uint32_t*>(myIndices->Data());
+        idx1 = aPtr[iTri + 1];
+        idx2 = aPtr[iTri + 2];
+      }
+
+      aTriIndices.push_back(centerIdx);
+      aTriIndices.push_back(idx1);
+      aTriIndices.push_back(idx2);
+    }
+
+    // Create converted index buffer
+    myConvertedFanBuffer = new Metal_IndexBuffer();
+    if (!myConvertedFanBuffer->Init(theCtx, Metal_IndexType_UInt32,
+                                    myNbFanTriIndices,
+                                    aTriIndices.data()))
+    {
+      myConvertedFanBuffer.Nullify();
+      myNbFanTriIndices = 0;
+    }
+  }
+  else if (myNbVertices >= 3)
+  {
+    // Non-indexed triangle fan
+    const int aNbTriangles = myNbVertices - 2;
+    if (aNbTriangles <= 0)
+    {
+      return;
+    }
+
+    myNbFanTriIndices = aNbTriangles * 3;
+    std::vector<uint32_t> aTriIndices;
+    aTriIndices.reserve(myNbFanTriIndices);
+
+    // Vertex 0 is center
+    for (int iTri = 0; iTri < aNbTriangles; ++iTri)
+    {
+      aTriIndices.push_back(0);                     // center
+      aTriIndices.push_back(uint32_t(iTri + 1));    // vertex i+1
+      aTriIndices.push_back(uint32_t(iTri + 2));    // vertex i+2
+    }
+
+    // Create converted index buffer
+    myConvertedFanBuffer = new Metal_IndexBuffer();
+    if (!myConvertedFanBuffer->Init(theCtx, Metal_IndexType_UInt32,
+                                    myNbFanTriIndices,
+                                    aTriIndices.data()))
+    {
+      myConvertedFanBuffer.Nullify();
+      myNbFanTriIndices = 0;
+    }
+  }
 }
 
 // =======================================================================
@@ -232,7 +456,17 @@ void Metal_PrimitiveArray::Render(Metal_Workspace* theWorkspace) const
   // Draw
   MTLPrimitiveType aPrimType = MetalPrimitiveType();
 
-  if (!myIndexBuffer.IsNull() && myIndexBuffer->IsValid())
+  // For triangle fans, use the converted triangle list buffer if available
+  if (myType == Graphic3d_TOPA_TRIANGLEFANS &&
+      !myConvertedFanBuffer.IsNull() && myConvertedFanBuffer->IsValid())
+  {
+    [anEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                          indexCount:static_cast<NSUInteger>(myNbFanTriIndices)
+                           indexType:MTLIndexTypeUInt32
+                         indexBuffer:myConvertedFanBuffer->Buffer()
+                   indexBufferOffset:0];
+  }
+  else if (!myIndexBuffer.IsNull() && myIndexBuffer->IsValid())
   {
     // Indexed drawing
     MTLIndexType anIndexType = myIndexBuffer->MetalIndexType();
@@ -365,19 +599,21 @@ void Metal_PrimitiveArray::RenderEdges(Metal_Workspace* theWorkspace) const
   {
     case Graphic3d_TOPA_TRIANGLES:
     {
-      // For triangles, we render the edges as lines
-      // Each triangle has 3 edges, so we draw 3 line segments per triangle
-      // Using the same vertices but with MTLPrimitiveTypeLine
-      if (!myIndexBuffer.IsNull() && myIndexBuffer->IsValid())
+      // For triangles, render edges as lines
+      // Prefer using pre-built unique edge buffer if available
+      if (!myEdgeIndexBuffer.IsNull() && myEdgeIndexBuffer->IsValid() && myNbEdgeIndices > 0)
       {
-        // For indexed triangles, we need to extract edges
-        // For now, render as line strip approximation (simplified)
-        // TODO: Generate proper edge indices for unique edges
+        // Use unique edge buffer - each edge drawn once as a line segment
+        [anEncoder drawIndexedPrimitives:MTLPrimitiveTypeLine
+                              indexCount:static_cast<NSUInteger>(myNbEdgeIndices)
+                               indexType:MTLIndexTypeUInt32
+                             indexBuffer:myEdgeIndexBuffer->Buffer()
+                       indexBufferOffset:0];
+      }
+      else if (!myIndexBuffer.IsNull() && myIndexBuffer->IsValid())
+      {
+        // Fallback: use triangle fill mode lines (draws shared edges twice)
         MTLIndexType anIndexType = myIndexBuffer->MetalIndexType();
-
-        // Draw triangles in wireframe mode by using triangle fill mode
-        // Note: Metal doesn't have a direct wireframe mode like OpenGL,
-        // but we can use setTriangleFillMode for this purpose
         [anEncoder setTriangleFillMode:MTLTriangleFillModeLines];
 
         [anEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
@@ -386,12 +622,11 @@ void Metal_PrimitiveArray::RenderEdges(Metal_Workspace* theWorkspace) const
                              indexBuffer:myIndexBuffer->Buffer()
                        indexBufferOffset:0];
 
-        // Restore fill mode
         [anEncoder setTriangleFillMode:MTLTriangleFillModeFill];
       }
       else
       {
-        // Non-indexed triangles
+        // Non-indexed triangles fallback
         [anEncoder setTriangleFillMode:MTLTriangleFillModeLines];
 
         [anEncoder drawPrimitives:MTLPrimitiveTypeTriangle
