@@ -165,6 +165,12 @@ public:
   //! Return true if reflections are enabled.
   bool IsReflectionsEnabled() const { return myReflectionsEnabled; }
 
+  //! Set refractions enabled (Phase 6).
+  void SetRefractionsEnabled(bool theEnabled) { myRefractionsEnabled = theEnabled; }
+
+  //! Return true if refractions are enabled.
+  bool IsRefractionsEnabled() const { return myRefractionsEnabled; }
+
 private:
 
 #ifdef __OBJC__
@@ -180,6 +186,9 @@ private:
   id<MTLComputePipelineState> myReflectionRayGenPipeline;  //!< Phase 5: Reflection ray generation
   id<MTLComputePipelineState> myBounceColorPipeline;       //!< Phase 5: Compute bounce colors
   id<MTLComputePipelineState> myShadeWithReflectionsPipeline; //!< Phase 5: Shade with reflections
+  id<MTLComputePipelineState> myRefractionRayGenPipeline;  //!< Phase 6: Refraction ray generation
+  id<MTLComputePipelineState> myRefractionColorPipeline;   //!< Phase 6: Compute refraction colors
+  id<MTLComputePipelineState> myShadeWithAllPipeline;      //!< Phase 6: Full shading with reflections + refractions
 
   // Buffers
   id<MTLBuffer> myVertexBuffer;
@@ -195,6 +204,11 @@ private:
   id<MTLBuffer> myReflectionIntersectionBuffer; //!< Phase 5: Reflection intersections
   id<MTLBuffer> myBounceColorBuffer;         //!< Phase 5: Accumulated bounce colors
   id<MTLBuffer> myTexCoordBuffer;            //!< Phase 7: Per-vertex texture coordinates
+  id<MTLBuffer> myRefractionRayBuffer;       //!< Phase 6: Refraction rays (first bounce)
+  id<MTLBuffer> myRefractionRayBuffer2;      //!< Phase 6: Refraction rays (second bounce)
+  id<MTLBuffer> myRefractionIntersectionBuffer; //!< Phase 6: Refraction intersections (first)
+  id<MTLBuffer> myRefractionIntersectionBuffer2; //!< Phase 6: Refraction intersections (second)
+  id<MTLBuffer> myRefractionColorBuffer;     //!< Phase 6: Refraction colors
 
   // Shader library
   id<MTLLibrary> myShaderLibrary;
@@ -208,6 +222,9 @@ private:
   void* myReflectionRayGenPipeline;
   void* myBounceColorPipeline;
   void* myShadeWithReflectionsPipeline;
+  void* myRefractionRayGenPipeline;
+  void* myRefractionColorPipeline;
+  void* myShadeWithAllPipeline;
   void* myVertexBuffer;
   void* myIndexBuffer;
   void* myMaterialBuffer;
@@ -221,6 +238,11 @@ private:
   void* myReflectionIntersectionBuffer;
   void* myBounceColorBuffer;
   void* myTexCoordBuffer;
+  void* myRefractionRayBuffer;
+  void* myRefractionRayBuffer2;
+  void* myRefractionIntersectionBuffer;
+  void* myRefractionIntersectionBuffer2;
+  void* myRefractionColorBuffer;
   void* myShaderLibrary;
 #endif
 
@@ -231,6 +253,7 @@ private:
   int  myMaxBounces;
   bool myShadowsEnabled;
   bool myReflectionsEnabled;
+  bool myRefractionsEnabled;
   bool myIsValid;
 };
 

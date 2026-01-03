@@ -611,6 +611,349 @@ kernel void shadeWithReflections(
 
   output.write(color, gid);
 }
+
+// Phase 6: Fresnel coefficient calculation (dielectric)
+inline float fresnelDielectric(float cosThetaI, float etaI, float etaT) {
+  cosThetaI = clamp(cosThetaI, -1.0f, 1.0f);
+
+  // Potentially swap indices of refraction
+  bool entering = cosThetaI > 0.0f;
+  if (!entering) {
+    float tmp = etaI;
+    etaI = etaT;
+    etaT = tmp;
+    cosThetaI = abs(cosThetaI);
+  }
+
+  // Compute cosThetaT using Snell's law
+  float sinThetaI = sqrt(max(0.0f, 1.0f - cosThetaI * cosThetaI));
+  float sinThetaT = etaI / etaT * sinThetaI;
+
+  // Total internal reflection
+  if (sinThetaT >= 1.0f) {
+    return 1.0f;
+  }
+
+  float cosThetaT = sqrt(max(0.0f, 1.0f - sinThetaT * sinThetaT));
+
+  float Rparl = ((etaT * cosThetaI) - (etaI * cosThetaT)) /
+                ((etaT * cosThetaI) + (etaI * cosThetaT));
+  float Rperp = ((etaI * cosThetaI) - (etaT * cosThetaT)) /
+                ((etaI * cosThetaI) + (etaT * cosThetaT));
+
+  return (Rparl * Rparl + Rperp * Rperp) / 2.0f;
+}
+
+// Phase 6: Compute refraction direction
+inline bool refractRay(float3 I, float3 N, float eta, thread float3& T) {
+  float NdotI = dot(N, I);
+  float k = 1.0f - eta * eta * (1.0f - NdotI * NdotI);
+  if (k < 0.0f) {
+    return false;  // Total internal reflection
+  }
+  T = eta * I - (eta * NdotI + sqrt(k)) * N;
+  return true;
+}
+
+// Phase 6: Generate refraction rays from hit points
+kernel void refractionRayGen(
+  device Ray* refractionRays [[buffer(0)]],
+  device const Intersection* intersections [[buffer(1)]],
+  device const Ray* incomingRays [[buffer(2)]],
+  constant CameraParams& camera [[buffer(3)]],
+  constant float3* vertices [[buffer(4)]],
+  constant uint* indices [[buffer(5)]],
+  constant RaytraceMaterial* materials [[buffer(6)]],
+  constant int* materialIndices [[buffer(7)]],
+  uint2 gid [[thread_position_in_grid]])
+{
+  if (gid.x >= uint(camera.resolution.x) || gid.y >= uint(camera.resolution.y)) return;
+
+  uint rayIndex = gid.y * uint(camera.resolution.x) + gid.x;
+  Intersection isect = intersections[rayIndex];
+
+  // Default: invalid ray
+  refractionRays[rayIndex].origin = float3(0.0);
+  refractionRays[rayIndex].minDistance = -1.0;
+  refractionRays[rayIndex].direction = float3(0.0, 1.0, 0.0);
+  refractionRays[rayIndex].maxDistance = 0.0;
+
+  if (isect.distance < 0.0) return;
+
+  // Get material
+  uint triIndex = uint(isect.primitiveIndex);
+  int matIdx = materialIndices[triIndex];
+  RaytraceMaterial mat = materials[matIdx];
+
+  // Only refract if material is transparent (transparency.y > 0)
+  float transparency = mat.transparency.y;
+  if (transparency < 0.01) return;
+
+  // Get IOR from transparency.z (default to 1.5 for glass)
+  float ior = mat.transparency.z;
+  if (ior < 1.0) ior = 1.5;
+
+  // Compute hit point and normal
+  uint i0 = indices[triIndex * 3 + 0];
+  uint i1 = indices[triIndex * 3 + 1];
+  uint i2 = indices[triIndex * 3 + 2];
+
+  float3 v0 = vertices[i0];
+  float3 v1 = vertices[i1];
+  float3 v2 = vertices[i2];
+
+  float3 edge1 = v1 - v0;
+  float3 edge2 = v2 - v0;
+  float3 normal = normalize(cross(edge1, edge2));
+
+  float3 hitPoint = float3(incomingRays[rayIndex].origin) +
+                    isect.distance * float3(incomingRays[rayIndex].direction);
+  float3 inDir = normalize(float3(incomingRays[rayIndex].direction));
+
+  // Determine if entering or exiting
+  bool entering = dot(normal, inDir) < 0.0;
+  float3 faceNormal = entering ? normal : -normal;
+  float eta = entering ? (1.0 / ior) : ior;
+
+  // Compute refracted direction
+  float3 refractDir;
+  if (!refractRay(inDir, faceNormal, eta, refractDir)) {
+    // Total internal reflection - generate reflection ray instead
+    refractDir = reflect(inDir, faceNormal);
+  }
+
+  // Offset origin to avoid self-intersection (in refraction direction)
+  float3 refractOrigin = hitPoint - faceNormal * 0.01;
+
+  refractionRays[rayIndex].origin = refractOrigin;
+  refractionRays[rayIndex].minDistance = 0.001;
+  refractionRays[rayIndex].direction = normalize(refractDir);
+  refractionRays[rayIndex].maxDistance = 1e38;
+}
+
+// Phase 6: Compute color for refraction rays
+kernel void computeRefractionColor(
+  device float4* refractionColors [[buffer(0)]],
+  device const Intersection* intersections [[buffer(1)]],
+  device const Ray* rays [[buffer(2)]],
+  constant CameraParams& camera [[buffer(3)]],
+  device const float3* vertices [[buffer(4)]],
+  device const uint* indices [[buffer(5)]],
+  constant RaytraceMaterial* materials [[buffer(6)]],
+  constant RaytraceLight* lights [[buffer(7)]],
+  device const int* materialIndices [[buffer(8)]],
+  uint2 gid [[thread_position_in_grid]])
+{
+  if (gid.x >= uint(camera.resolution.x) || gid.y >= uint(camera.resolution.y)) return;
+
+  uint rayIndex = gid.y * uint(camera.resolution.x) + gid.x;
+  Intersection isect = intersections[rayIndex];
+
+  float4 color;
+
+  if (isect.distance < 0.0) {
+    // Sky color for rays that escape
+    float3 dir = normalize(rays[rayIndex].direction);
+    float t = 0.5 * (dir.y + 1.0);
+    color = float4(mix(float3(0.2, 0.2, 0.25), float3(0.6, 0.8, 1.0), t), 1.0);
+  }
+  else {
+    uint triIndex = uint(isect.primitiveIndex);
+    uint i0 = indices[triIndex * 3 + 0];
+    uint i1 = indices[triIndex * 3 + 1];
+    uint i2 = indices[triIndex * 3 + 2];
+
+    float3 v0 = vertices[i0];
+    float3 v1 = vertices[i1];
+    float3 v2 = vertices[i2];
+
+    float3 edge1 = v1 - v0;
+    float3 edge2 = v2 - v0;
+    float3 normal = normalize(cross(edge1, edge2));
+
+    float3 hitPoint = rays[rayIndex].origin + isect.distance * rays[rayIndex].direction;
+
+    int matIdx = materialIndices[triIndex];
+    RaytraceMaterial mat = materials[matIdx];
+    float3 diffuseColor = mat.diffuse.rgb;
+
+    float3 rayDir = normalize(float3(rays[rayIndex].direction));
+    float3 faceNormal = dot(normal, rayDir) < 0.0 ? normal : -normal;
+
+    // Simple lighting for refracted view
+    float3 totalLight = mat.emission.rgb + mat.ambient.rgb * 0.2;
+
+    for (int i = 0; i < camera.lightCount; ++i) {
+      RaytraceLight light = lights[i];
+      float3 lightDir;
+      float attenuation = 1.0;
+
+      if (light.position.w < 0.5) {
+        lightDir = normalize(-light.position.xyz);
+      } else {
+        float3 toLight = light.position.xyz - hitPoint;
+        float dist = length(toLight);
+        lightDir = toLight / dist;
+        attenuation = 1.0 / (1.0 + 0.05 * dist * dist);
+      }
+
+      float NdotL = max(dot(faceNormal, lightDir), 0.0);
+      totalLight += diffuseColor * light.emission.rgb * light.emission.w * NdotL * attenuation;
+
+      float3 viewDir = -rayDir;
+      float3 halfDir = normalize(lightDir + viewDir);
+      float NdotH = max(dot(faceNormal, halfDir), 0.0);
+      float spec = pow(NdotH, max(mat.specular.w, 1.0));
+      totalLight += mat.specular.rgb * light.emission.rgb * spec * attenuation * 0.5;
+    }
+
+    color = float4(clamp(totalLight, 0.0, 1.0), 1.0);
+  }
+
+  refractionColors[rayIndex] = color;
+}
+
+// Phase 6: Full shading with reflections and refractions
+kernel void shadeWithAll(
+  texture2d<float, access::write> output [[texture(0)]],
+  device const Intersection* intersections [[buffer(0)]],
+  device const Ray* rays [[buffer(1)]],
+  constant CameraParams& camera [[buffer(2)]],
+  device const float3* vertices [[buffer(3)]],
+  device const uint* indices [[buffer(4)]],
+  constant RaytraceMaterial* materials [[buffer(5)]],
+  constant RaytraceLight* lights [[buffer(6)]],
+  device const int* materialIndices [[buffer(7)]],
+  device const Intersection* shadowIntersections [[buffer(8)]],
+  device const float4* reflectionColors [[buffer(9)]],
+  device const float4* refractionColors [[buffer(10)]],
+  uint2 gid [[thread_position_in_grid]])
+{
+  if (gid.x >= uint(camera.resolution.x) || gid.y >= uint(camera.resolution.y)) return;
+
+  uint rayIndex = gid.y * uint(camera.resolution.x) + gid.x;
+  uint pixelCount = uint(camera.resolution.x) * uint(camera.resolution.y);
+  Intersection isect = intersections[rayIndex];
+
+  float4 color;
+
+  if (isect.distance < 0.0) {
+    float3 dir = normalize(rays[rayIndex].direction);
+    float t = 0.5 * (dir.y + 1.0);
+    color = float4(mix(float3(0.1, 0.1, 0.15), float3(0.5, 0.7, 1.0), t), 1.0);
+  }
+  else {
+    uint triIndex = uint(isect.primitiveIndex);
+    uint i0 = indices[triIndex * 3 + 0];
+    uint i1 = indices[triIndex * 3 + 1];
+    uint i2 = indices[triIndex * 3 + 2];
+
+    float3 v0 = vertices[i0];
+    float3 v1 = vertices[i1];
+    float3 v2 = vertices[i2];
+
+    float3 edge1 = v1 - v0;
+    float3 edge2 = v2 - v0;
+    float3 normal = normalize(cross(edge1, edge2));
+
+    float3 hitPoint = rays[rayIndex].origin + isect.distance * rays[rayIndex].direction;
+
+    int matIdx = materialIndices[triIndex];
+    RaytraceMaterial mat = materials[matIdx];
+    float3 diffuseColor = mat.diffuse.rgb;
+
+    float3 rayDir = normalize(float3(rays[rayIndex].direction));
+    float3 faceNormal = dot(normal, rayDir) < 0.0 ? normal : -normal;
+
+    // Base lighting
+    float3 totalLight = mat.emission.rgb + mat.ambient.rgb * 0.15;
+
+    for (int i = 0; i < camera.lightCount; ++i) {
+      RaytraceLight light = lights[i];
+      float3 lightDir;
+      float attenuation = 1.0;
+
+      if (light.position.w < 0.5) {
+        lightDir = normalize(-light.position.xyz);
+      } else {
+        float3 toLight = light.position.xyz - hitPoint;
+        float dist = length(toLight);
+        lightDir = toLight / dist;
+        attenuation = 1.0 / (1.0 + 0.05 * dist * dist);
+      }
+
+      // Shadow
+      float shadowFactor = 1.0;
+      if (camera.shadowsEnabled > 0) {
+        uint shadowIdx = i * pixelCount + rayIndex;
+        Intersection shadowIsect = shadowIntersections[shadowIdx];
+        if (shadowIsect.distance > 0.0) {
+          shadowFactor = 0.0;
+        }
+      }
+
+      float NdotL = max(dot(faceNormal, lightDir), 0.0);
+      totalLight += shadowFactor * diffuseColor * light.emission.rgb * light.emission.w * NdotL * attenuation;
+
+      float3 viewDir = normalize(camera.origin - hitPoint);
+      float3 halfDir = normalize(lightDir + viewDir);
+      float NdotH = max(dot(faceNormal, halfDir), 0.0);
+      float shininess = max(mat.specular.w, 1.0);
+      float spec = pow(NdotH, shininess);
+      totalLight += shadowFactor * mat.specular.rgb * light.emission.rgb * spec * attenuation;
+    }
+
+    // Get material properties
+    float reflectivity = mat.reflection.w;
+    float transparency = mat.transparency.y;
+    float ior = mat.transparency.z;
+    if (ior < 1.0) ior = 1.5;
+
+    // Compute Fresnel for transparent materials
+    float fresnel = 0.0;
+    if (transparency > 0.01) {
+      float cosTheta = abs(dot(rayDir, faceNormal));
+      fresnel = fresnelDielectric(cosTheta, 1.0, ior);
+    }
+
+    // Mix reflection and refraction based on Fresnel
+    float3 finalColor;
+
+    if (transparency > 0.01) {
+      // For transparent materials: Fresnel determines reflection vs refraction
+      // No direct surface shading - light passes through or reflects
+      float3 reflColor = reflectionColors[rayIndex].rgb;
+      float3 refrColor = refractionColors[rayIndex].rgb;
+      float3 reflTint = mat.reflection.rgb;
+      float3 refrTint = mat.refraction.rgb;
+      if (length(refrTint) < 0.01) refrTint = float3(1.0);
+
+      // Fresnel blend: reflected portion + transmitted portion = 1
+      float reflWeight = fresnel;
+      float refrWeight = 1.0 - fresnel;
+
+      // Blend reflection and refraction, with a small amount of surface color
+      float surfaceWeight = (1.0 - transparency) * 0.5;
+      finalColor = reflColor * reflTint * reflWeight +
+                   refrColor * refrTint * refrWeight * transparency +
+                   totalLight * surfaceWeight;
+    }
+    else if (camera.reflectionsEnabled > 0 && reflectivity > 0.01) {
+      // Opaque reflective material
+      float3 reflColor = reflectionColors[rayIndex].rgb;
+      float3 tint = mat.reflection.rgb;
+      finalColor = totalLight * (1.0 - reflectivity) + reflColor * tint * reflectivity;
+    }
+    else {
+      // Opaque non-reflective material
+      finalColor = totalLight;
+    }
+
+    color = float4(clamp(finalColor, 0.0, 1.0), 1.0);
+  }
+
+  output.write(color, gid);
+}
 )";
 
 // =======================================================================
@@ -627,6 +970,9 @@ Metal_RayTracing::Metal_RayTracing()
   myReflectionRayGenPipeline(nil),
   myBounceColorPipeline(nil),
   myShadeWithReflectionsPipeline(nil),
+  myRefractionRayGenPipeline(nil),
+  myRefractionColorPipeline(nil),
+  myShadeWithAllPipeline(nil),
   myVertexBuffer(nil),
   myIndexBuffer(nil),
   myMaterialBuffer(nil),
@@ -640,6 +986,11 @@ Metal_RayTracing::Metal_RayTracing()
   myReflectionIntersectionBuffer(nil),
   myBounceColorBuffer(nil),
   myTexCoordBuffer(nil),
+  myRefractionRayBuffer(nil),
+  myRefractionRayBuffer2(nil),
+  myRefractionIntersectionBuffer(nil),
+  myRefractionIntersectionBuffer2(nil),
+  myRefractionColorBuffer(nil),
   myShaderLibrary(nil),
   myVertexCount(0),
   myTriangleCount(0),
@@ -648,6 +999,7 @@ Metal_RayTracing::Metal_RayTracing()
   myMaxBounces(3),
   myShadowsEnabled(true),
   myReflectionsEnabled(true),
+  myRefractionsEnabled(true),
   myIsValid(false)
 {
 }
@@ -811,6 +1163,45 @@ bool Metal_RayTracing::Init(Metal_Context* theCtx)
     }
   }
 
+  // Phase 6: Create refraction ray generation pipeline
+  id<MTLFunction> aRefractionRayGenFunc = [myShaderLibrary newFunctionWithName:@"refractionRayGen"];
+  if (aRefractionRayGenFunc != nil)
+  {
+    myRefractionRayGenPipeline = [aDevice newComputePipelineStateWithFunction:aRefractionRayGenFunc error:&anError];
+    if (myRefractionRayGenPipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: refractionRayGen pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
+  // Phase 6: Create refraction color pipeline
+  id<MTLFunction> aRefractionColorFunc = [myShaderLibrary newFunctionWithName:@"computeRefractionColor"];
+  if (aRefractionColorFunc != nil)
+  {
+    myRefractionColorPipeline = [aDevice newComputePipelineStateWithFunction:aRefractionColorFunc error:&anError];
+    if (myRefractionColorPipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: computeRefractionColor pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
+  // Phase 6: Create full shade pipeline (reflections + refractions)
+  id<MTLFunction> aShadeWithAllFunc = [myShaderLibrary newFunctionWithName:@"shadeWithAll"];
+  if (aShadeWithAllFunc != nil)
+  {
+    myShadeWithAllPipeline = [aDevice newComputePipelineStateWithFunction:aShadeWithAllFunc error:&anError];
+    if (myShadeWithAllPipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: shadeWithAll pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
   // Create ray intersector
   myRayIntersector = [[MPSRayIntersector alloc] initWithDevice:aDevice];
   myRayIntersector.rayDataType = MPSRayDataTypeOriginMinDistanceDirectionMaxDistance;
@@ -838,6 +1229,9 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myReflectionRayGenPipeline = nil;
   myBounceColorPipeline = nil;
   myShadeWithReflectionsPipeline = nil;
+  myRefractionRayGenPipeline = nil;
+  myRefractionColorPipeline = nil;
+  myShadeWithAllPipeline = nil;
   myVertexBuffer = nil;
   myIndexBuffer = nil;
   myMaterialBuffer = nil;
@@ -851,6 +1245,11 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myReflectionIntersectionBuffer = nil;
   myBounceColorBuffer = nil;
   myTexCoordBuffer = nil;
+  myRefractionRayBuffer = nil;
+  myRefractionRayBuffer2 = nil;
+  myRefractionIntersectionBuffer = nil;
+  myRefractionIntersectionBuffer2 = nil;
+  myRefractionColorBuffer = nil;
   myShaderLibrary = nil;
 
   myVertexCount = 0;
@@ -1078,6 +1477,38 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
     }
   }
 
+  // Phase 6: Refraction buffers (only if refractions enabled and we have the pipeline)
+  // We need 2 bounce buffers for solid glass objects (enter + exit)
+  bool aUseRefractions = myRefractionsEnabled && myRefractionRayGenPipeline != nil;
+  if (aUseRefractions)
+  {
+    if (myRefractionRayBuffer == nil || [myRefractionRayBuffer length] < aRayBufferSize)
+    {
+      myRefractionRayBuffer = [aDevice newBufferWithLength:aRayBufferSize
+                                                   options:MTLResourceStorageModePrivate];
+    }
+    if (myRefractionRayBuffer2 == nil || [myRefractionRayBuffer2 length] < aRayBufferSize)
+    {
+      myRefractionRayBuffer2 = [aDevice newBufferWithLength:aRayBufferSize
+                                                    options:MTLResourceStorageModePrivate];
+    }
+    if (myRefractionIntersectionBuffer == nil || [myRefractionIntersectionBuffer length] < aIntersectionBufferSize)
+    {
+      myRefractionIntersectionBuffer = [aDevice newBufferWithLength:aIntersectionBufferSize
+                                                            options:MTLResourceStorageModePrivate];
+    }
+    if (myRefractionIntersectionBuffer2 == nil || [myRefractionIntersectionBuffer2 length] < aIntersectionBufferSize)
+    {
+      myRefractionIntersectionBuffer2 = [aDevice newBufferWithLength:aIntersectionBufferSize
+                                                             options:MTLResourceStorageModePrivate];
+    }
+    if (myRefractionColorBuffer == nil || [myRefractionColorBuffer length] < aColorBufferSize)
+    {
+      myRefractionColorBuffer = [aDevice newBufferWithLength:aColorBufferSize
+                                                     options:MTLResourceStorageModePrivate];
+    }
+  }
+
   // Camera parameters
   struct CameraParams {
     simd_float3 origin;
@@ -1211,11 +1642,93 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
     }
   }
 
-  // Step 5: Shade intersections
+  // Step 5: Generate and trace refraction rays (Phase 6)
+  // For solid glass objects, rays must enter AND exit the surface (2 bounces)
+  if (aUseRefractions)
+  {
+    MTLSize aThreadgroupSize = MTLSizeMake(8, 8, 1);
+    MTLSize aThreadgroups = MTLSizeMake((aWidth + 7) / 8, (aHeight + 7) / 8, 1);
+
+    // 5a: Generate first refraction rays (entering glass from primary hits)
+    {
+      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+      [anEncoder setComputePipelineState:myRefractionRayGenPipeline];
+      [anEncoder setBuffer:myRefractionRayBuffer offset:0 atIndex:0];
+      [anEncoder setBuffer:myIntersectionBuffer offset:0 atIndex:1];
+      [anEncoder setBuffer:myRayBuffer offset:0 atIndex:2];
+      [anEncoder setBytes:&aCameraParams length:sizeof(aCameraParams) atIndex:3];
+      [anEncoder setBuffer:myVertexBuffer offset:0 atIndex:4];
+      [anEncoder setBuffer:myIndexBuffer offset:0 atIndex:5];
+      [anEncoder setBuffer:myMaterialBuffer offset:0 atIndex:6];
+      [anEncoder setBuffer:myMaterialIndexBuffer offset:0 atIndex:7];
+      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+      [anEncoder endEncoding];
+    }
+
+    // 5b: Intersect first refraction rays (find exit point inside glass)
+    [myRayIntersector encodeIntersectionToCommandBuffer:theCommandBuffer
+                                       intersectionType:MPSIntersectionTypeNearest
+                                              rayBuffer:myRefractionRayBuffer
+                                        rayBufferOffset:0
+                                     intersectionBuffer:myRefractionIntersectionBuffer
+                               intersectionBufferOffset:0
+                                               rayCount:aRayCount
+                                  accelerationStructure:myAccelerationStructure];
+
+    // 5c: Generate second refraction rays (exiting glass)
+    {
+      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+      [anEncoder setComputePipelineState:myRefractionRayGenPipeline];
+      [anEncoder setBuffer:myRefractionRayBuffer2 offset:0 atIndex:0];  // output to buffer2
+      [anEncoder setBuffer:myRefractionIntersectionBuffer offset:0 atIndex:1];  // first bounce intersections
+      [anEncoder setBuffer:myRefractionRayBuffer offset:0 atIndex:2];  // first bounce rays as incoming
+      [anEncoder setBytes:&aCameraParams length:sizeof(aCameraParams) atIndex:3];
+      [anEncoder setBuffer:myVertexBuffer offset:0 atIndex:4];
+      [anEncoder setBuffer:myIndexBuffer offset:0 atIndex:5];
+      [anEncoder setBuffer:myMaterialBuffer offset:0 atIndex:6];
+      [anEncoder setBuffer:myMaterialIndexBuffer offset:0 atIndex:7];
+      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+      [anEncoder endEncoding];
+    }
+
+    // 5d: Intersect second refraction rays (find what's behind the glass)
+    [myRayIntersector encodeIntersectionToCommandBuffer:theCommandBuffer
+                                       intersectionType:MPSIntersectionTypeNearest
+                                              rayBuffer:myRefractionRayBuffer2
+                                        rayBufferOffset:0
+                                     intersectionBuffer:myRefractionIntersectionBuffer2
+                               intersectionBufferOffset:0
+                                               rayCount:aRayCount
+                                  accelerationStructure:myAccelerationStructure];
+
+    // 5e: Compute colors for what the exited rays hit
+    {
+      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+      [anEncoder setComputePipelineState:myRefractionColorPipeline];
+      [anEncoder setBuffer:myRefractionColorBuffer offset:0 atIndex:0];
+      [anEncoder setBuffer:myRefractionIntersectionBuffer2 offset:0 atIndex:1];  // second bounce intersections
+      [anEncoder setBuffer:myRefractionRayBuffer2 offset:0 atIndex:2];  // second bounce rays
+      [anEncoder setBytes:&aCameraParams length:sizeof(aCameraParams) atIndex:3];
+      [anEncoder setBuffer:myVertexBuffer offset:0 atIndex:4];
+      [anEncoder setBuffer:myIndexBuffer offset:0 atIndex:5];
+      [anEncoder setBuffer:myMaterialBuffer offset:0 atIndex:6];
+      [anEncoder setBuffer:myLightBuffer offset:0 atIndex:7];
+      [anEncoder setBuffer:myMaterialIndexBuffer offset:0 atIndex:8];
+      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+      [anEncoder endEncoding];
+    }
+  }
+
+  // Step 6: Shade intersections
   {
     id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
 
-    if (aUseReflections)
+    if (aUseReflections && aUseRefractions)
+    {
+      // Use full shade kernel with reflections + refractions (Phase 6)
+      [anEncoder setComputePipelineState:myShadeWithAllPipeline];
+    }
+    else if (aUseReflections)
     {
       // Use shade kernel with reflection support
       [anEncoder setComputePipelineState:myShadeWithReflectionsPipeline];
@@ -1261,7 +1774,7 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
     }
 
     // Shadow intersection buffer (only used if shadows enabled)
-    if (aUseShadows || aUseReflections)
+    if (aUseShadows || aUseReflections || aUseRefractions)
     {
       [anEncoder setBuffer:myShadowIntersectionBuffer offset:0 atIndex:8];
     }
@@ -1270,6 +1783,12 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
     if (aUseReflections)
     {
       [anEncoder setBuffer:myBounceColorBuffer offset:0 atIndex:9];
+    }
+
+    // Refraction color buffer (only used if refractions enabled)
+    if (aUseRefractions)
+    {
+      [anEncoder setBuffer:myRefractionColorBuffer offset:0 atIndex:10];
     }
 
     MTLSize aThreadgroupSize = MTLSizeMake(8, 8, 1);
