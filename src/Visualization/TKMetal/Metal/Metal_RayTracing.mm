@@ -1016,6 +1016,208 @@ kernel void shadeWithAll(
   output.write(color, gid);
 }
 
+// ==========================================================================
+// Phase 9: Path Tracing Functions and Kernels
+// ==========================================================================
+
+// PCG random - fast high-quality RNG
+inline uint pcg_hash(uint input) {
+    uint state = input * 747796405u + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+inline float random_float(thread uint& seed) {
+    seed = pcg_hash(seed);
+    return float(seed) / float(0xffffffffu);
+}
+
+inline float2 random_float2(thread uint& seed) {
+    return float2(random_float(seed), random_float(seed));
+}
+
+// Cosine-weighted hemisphere sampling (importance sampling for diffuse)
+inline float3 sample_cosine_hemisphere(float2 u, float3 normal) {
+    float r = sqrt(u.x);
+    float theta = 2.0f * M_PI_F * u.y;
+
+    float x = r * cos(theta);
+    float y = r * sin(theta);
+    float z = sqrt(max(0.0f, 1.0f - u.x));
+
+    // Build orthonormal basis from normal
+    float3 up = abs(normal.y) < 0.999f ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f);
+    float3 tangent = normalize(cross(up, normal));
+    float3 bitangent = cross(normal, tangent);
+
+    return tangent * x + bitangent * y + normal * z;
+}
+
+// Phase 9: Camera parameters extended with frame index for accumulation
+struct PathTraceCameraParams {
+    float3 origin;
+    float3 forward;
+    float3 right;
+    float3 up;
+    float fov;
+    float2 resolution;
+    int maxBounces;
+    int shadowsEnabled;
+    int reflectionsEnabled;
+    int lightCount;
+    uint frameIndex;    // Frame counter for accumulation
+};
+
+// Phase 9: Generate jittered rays for path tracing
+kernel void pathTraceRayGen(
+    device Ray* rays [[buffer(0)]],
+    constant PathTraceCameraParams& camera [[buffer(1)]],
+    device uint* rngSeeds [[buffer(2)]],
+    uint2 tid [[thread_position_in_grid]])
+{
+    if (tid.x >= uint(camera.resolution.x) || tid.y >= uint(camera.resolution.y)) return;
+
+    uint idx = tid.y * uint(camera.resolution.x) + tid.x;
+
+    // Initialize or advance RNG state
+    uint seed = rngSeeds[idx];
+    if (camera.frameIndex == 0) {
+        // First frame - initialize with pixel position and frame index
+        seed = pcg_hash(tid.x + tid.y * uint(camera.resolution.x) + camera.frameIndex * 1337u);
+    }
+
+    // Jitter for anti-aliasing
+    float2 jitter = random_float2(seed);
+    float u = (float(tid.x) + jitter.x) / camera.resolution.x * 2.0f - 1.0f;
+    float v = (float(tid.y) + jitter.y) / camera.resolution.y * 2.0f - 1.0f;
+
+    float aspectRatio = camera.resolution.x / camera.resolution.y;
+    float halfHeight = tan(camera.fov * 0.5f);
+    float halfWidth = aspectRatio * halfHeight;
+
+    float3 direction = normalize(camera.forward + u * halfWidth * camera.right - v * halfHeight * camera.up);
+
+    rays[idx].origin = camera.origin;
+    rays[idx].minDistance = 0.001f;
+    rays[idx].direction = direction;
+    rays[idx].maxDistance = INFINITY;
+
+    // Save RNG state
+    rngSeeds[idx] = seed;
+}
+
+// Phase 9: Path tracing kernel - traces rays and computes radiance with progressive accumulation
+kernel void pathTrace(
+    texture2d<float, access::read_write> output [[texture(0)]],
+    device const Intersection* intersections [[buffer(0)]],
+    device const Ray* rays [[buffer(1)]],
+    constant PathTraceCameraParams& camera [[buffer(2)]],
+    constant float3* vertices [[buffer(3)]],
+    constant uint* indices [[buffer(4)]],
+    constant RaytraceMaterial* materials [[buffer(5)]],
+    constant int* materialIndices [[buffer(6)]],
+    constant RaytraceLight* lights [[buffer(7)]],
+    device uint* rngSeeds [[buffer(8)]],
+    uint2 tid [[thread_position_in_grid]])
+{
+    if (tid.x >= uint(camera.resolution.x) || tid.y >= uint(camera.resolution.y)) return;
+
+    uint idx = tid.y * uint(camera.resolution.x) + tid.x;
+    Intersection isect = intersections[idx];
+
+    // Get RNG state
+    uint seed = rngSeeds[idx];
+
+    float3 radiance = float3(0.0f);
+    float3 throughput = float3(1.0f);
+
+    // Current ray
+    float3 rayOrigin = float3(rays[idx].origin);
+    float3 rayDir = normalize(float3(rays[idx].direction));
+
+    // Path tracing - primary ray only (for now, multi-bounce would need iterative tracing)
+    if (isect.distance < 0.0f) {
+        // Miss - sky color
+        float t = 0.5f * (rayDir.y + 1.0f);
+        radiance = throughput * mix(float3(0.5f, 0.7f, 1.0f), float3(0.8f, 0.9f, 1.0f), t) * 0.5f;
+    }
+    else {
+        // Get hit information
+        uint triIdx = uint(isect.primitiveIndex);
+        uint i0 = indices[triIdx * 3 + 0];
+        uint i1 = indices[triIdx * 3 + 1];
+        uint i2 = indices[triIdx * 3 + 2];
+
+        float3 v0 = vertices[i0];
+        float3 v1 = vertices[i1];
+        float3 v2 = vertices[i2];
+
+        float2 bary = isect.coordinates;
+        float3 hitPoint = v0 * (1.0f - bary.x - bary.y) + v1 * bary.x + v2 * bary.y;
+
+        float3 edge1 = v1 - v0;
+        float3 edge2 = v2 - v0;
+        float3 normal = normalize(cross(edge1, edge2));
+
+        // Flip normal if backface
+        if (dot(normal, rayDir) > 0.0f) {
+            normal = -normal;
+        }
+
+        // Get material
+        int matIdx = materialIndices[triIdx];
+        RaytraceMaterial mat = materials[matIdx];
+        float3 albedo = mat.diffuse.rgb;
+
+        // Add emission
+        radiance += throughput * mat.emission.rgb;
+
+        // Direct lighting (next event estimation)
+        for (int l = 0; l < camera.lightCount; l++) {
+            RaytraceLight light = lights[l];
+            float3 lightDir;
+            float attenuation = 1.0f;
+
+            if (light.position.w < 0.5f) {
+                // Directional light
+                lightDir = normalize(-light.position.xyz);
+            } else {
+                // Point light
+                float3 toLight = light.position.xyz - hitPoint;
+                float lightDist = length(toLight);
+                lightDir = toLight / lightDist;
+                attenuation = 1.0f / (1.0f + 0.05f * lightDist * lightDist);
+            }
+
+            float NdotL = max(dot(normal, lightDir), 0.0f);
+            if (NdotL > 0.0f) {
+                // Diffuse contribution (no shadow test in this pass)
+                radiance += throughput * albedo * light.emission.rgb * light.emission.w * NdotL * attenuation / M_PI_F;
+            }
+        }
+    }
+
+    // Save RNG state
+    rngSeeds[idx] = seed;
+
+    // Progressive accumulation - read previous accumulated value
+    float3 prevColor = float3(0.0f);
+    if (camera.frameIndex > 0) {
+        // Read previous accumulated color (in linear space)
+        float4 prev = output.read(tid);
+        // Convert from gamma back to linear for accumulation
+        prevColor = pow(prev.rgb, float3(2.2f));
+    }
+
+    // Running average: new = old * (n/(n+1)) + sample * (1/(n+1))
+    float weight = 1.0f / float(camera.frameIndex + 1);
+    float3 accumulatedColor = prevColor * (1.0f - weight) + radiance * weight;
+
+    // Write to output with gamma correction
+    float3 displayColor = pow(accumulatedColor, float3(1.0f / 2.2f));
+    output.write(float4(saturate(displayColor), 1.0f), tid);
+}
+
 // Phase 8: Full shading with textures, reflections, and refractions
 kernel void shadeWithTextures(
   texture2d<float, access::write> output [[texture(0)]],
@@ -1218,6 +1420,11 @@ Metal_RayTracing::Metal_RayTracing()
   myTextureSampler(nil),
   myShaderLibrary(nil),
   myShadeWithTexturesPipeline(nil),
+  myPathTraceRayGenPipeline(nil),
+  myPathTracePipeline(nil),
+  myAccumulatePipeline(nil),
+  myAccumulationBuffer(nil),
+  myRandomSeedBuffer(nil),
   myVertexCount(0),
   myTriangleCount(0),
   myMaterialCount(0),
@@ -1227,7 +1434,9 @@ Metal_RayTracing::Metal_RayTracing()
   myReflectionsEnabled(true),
   myRefractionsEnabled(true),
   myTexturingEnabled(false),
-  myIsValid(false)
+  myPathTracingEnabled(false),
+  myIsValid(false),
+  myFrameIndex(0)
 {
 }
 
@@ -1451,6 +1660,32 @@ bool Metal_RayTracing::Init(Metal_Context* theCtx)
   aSamplerDesc.tAddressMode = MTLSamplerAddressModeRepeat;
   myTextureSampler = [aDevice newSamplerStateWithDescriptor:aSamplerDesc];
 
+  // Phase 9: Create path tracing ray generation pipeline
+  id<MTLFunction> aPathTraceRayGenFunc = [myShaderLibrary newFunctionWithName:@"pathTraceRayGen"];
+  if (aPathTraceRayGenFunc != nil)
+  {
+    myPathTraceRayGenPipeline = [aDevice newComputePipelineStateWithFunction:aPathTraceRayGenFunc error:&anError];
+    if (myPathTraceRayGenPipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: pathTraceRayGen pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
+  // Phase 9: Create path tracing kernel pipeline
+  id<MTLFunction> aPathTraceFunc = [myShaderLibrary newFunctionWithName:@"pathTrace"];
+  if (aPathTraceFunc != nil)
+  {
+    myPathTracePipeline = [aDevice newComputePipelineStateWithFunction:aPathTraceFunc error:&anError];
+    if (myPathTracePipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: pathTrace pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
   // Create ray intersector
   myRayIntersector = [[MPSRayIntersector alloc] initWithDevice:aDevice];
   myRayIntersector.rayDataType = MPSRayDataTypeOriginMinDistanceDirectionMaxDistance;
@@ -1482,6 +1717,9 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myRefractionColorPipeline = nil;
   myShadeWithAllPipeline = nil;
   myShadeWithTexturesPipeline = nil;
+  myPathTraceRayGenPipeline = nil;
+  myPathTracePipeline = nil;
+  myAccumulatePipeline = nil;
   myVertexBuffer = nil;
   myIndexBuffer = nil;
   myMaterialBuffer = nil;
@@ -1503,6 +1741,8 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myDiffuseTextureArray = nil;
   myNormalTextureArray = nil;
   myTextureSampler = nil;
+  myAccumulationBuffer = nil;
+  myRandomSeedBuffer = nil;
   myShaderLibrary = nil;
 
   myVertexCount = 0;
@@ -1510,6 +1750,7 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myMaterialCount = 0;
   myLightCount = 0;
   myIsValid = false;
+  myFrameIndex = 0;
 }
 
 // =======================================================================
@@ -1833,6 +2074,100 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
       myRefractionColorBuffer = [aDevice newBufferWithLength:aColorBufferSize
                                                      options:MTLResourceStorageModePrivate];
     }
+  }
+
+  // Phase 9: Path tracing mode - uses progressive accumulation with jittered rays
+  bool aUsePathTracing = myPathTracingEnabled && myPathTraceRayGenPipeline != nil && myPathTracePipeline != nil;
+  if (aUsePathTracing)
+  {
+    // Allocate random seed buffer for per-pixel RNG state
+    size_t aSeedBufferSize = aRayCount * sizeof(uint32_t);
+    if (myRandomSeedBuffer == nil || [myRandomSeedBuffer length] < aSeedBufferSize)
+    {
+      myRandomSeedBuffer = [aDevice newBufferWithLength:aSeedBufferSize
+                                                options:MTLResourceStorageModePrivate];
+    }
+
+    // Path trace camera parameters (extended with forward/right/up vectors and frame index)
+    struct PathTraceCameraParams {
+      simd_float3 origin;
+      simd_float3 forward;
+      simd_float3 right;
+      simd_float3 up;
+      float fov;
+      simd_float2 resolution;
+      int maxBounces;
+      int shadowsEnabled;
+      int reflectionsEnabled;
+      int lightCount;
+      uint32_t frameIndex;
+    } aPTCameraParams;
+
+    // Compute camera basis vectors
+    simd_float3 aOrigin = simd_make_float3(theCameraOrigin.x(), theCameraOrigin.y(), theCameraOrigin.z());
+    simd_float3 aLookAt = simd_make_float3(theCameraLookAt.x(), theCameraLookAt.y(), theCameraLookAt.z());
+    simd_float3 aUp = simd_make_float3(theCameraUp.x(), theCameraUp.y(), theCameraUp.z());
+    simd_float3 aForward = simd_normalize(aLookAt - aOrigin);
+    simd_float3 aRight = simd_normalize(simd_cross(aForward, aUp));
+    simd_float3 aCamUp = simd_cross(aRight, aForward);
+
+    aPTCameraParams.origin = aOrigin;
+    aPTCameraParams.forward = aForward;
+    aPTCameraParams.right = aRight;
+    aPTCameraParams.up = aCamUp;
+    aPTCameraParams.fov = theFov;
+    aPTCameraParams.resolution = simd_make_float2(static_cast<float>(aWidth), static_cast<float>(aHeight));
+    aPTCameraParams.maxBounces = myMaxBounces;
+    aPTCameraParams.shadowsEnabled = myShadowsEnabled ? 1 : 0;
+    aPTCameraParams.reflectionsEnabled = myReflectionsEnabled ? 1 : 0;
+    aPTCameraParams.lightCount = myLightCount;
+    aPTCameraParams.frameIndex = myFrameIndex;
+
+    MTLSize aThreadgroupSize = MTLSizeMake(8, 8, 1);
+    MTLSize aThreadgroups = MTLSizeMake((aWidth + 7) / 8, (aHeight + 7) / 8, 1);
+
+    // Step 1: Generate jittered rays for this frame
+    {
+      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+      [anEncoder setComputePipelineState:myPathTraceRayGenPipeline];
+      [anEncoder setBuffer:myRayBuffer offset:0 atIndex:0];
+      [anEncoder setBytes:&aPTCameraParams length:sizeof(aPTCameraParams) atIndex:1];
+      [anEncoder setBuffer:myRandomSeedBuffer offset:0 atIndex:2];
+      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+      [anEncoder endEncoding];
+    }
+
+    // Step 2: Intersect primary rays with geometry
+    [myRayIntersector encodeIntersectionToCommandBuffer:theCommandBuffer
+                                       intersectionType:MPSIntersectionTypeNearest
+                                              rayBuffer:myRayBuffer
+                                        rayBufferOffset:0
+                                     intersectionBuffer:myIntersectionBuffer
+                               intersectionBufferOffset:0
+                                               rayCount:aRayCount
+                                  accelerationStructure:myAccelerationStructure];
+
+    // Step 3: Path trace shading with progressive accumulation
+    {
+      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+      [anEncoder setComputePipelineState:myPathTracePipeline];
+      [anEncoder setTexture:theOutputTexture atIndex:0];
+      [anEncoder setBuffer:myIntersectionBuffer offset:0 atIndex:0];
+      [anEncoder setBuffer:myRayBuffer offset:0 atIndex:1];
+      [anEncoder setBytes:&aPTCameraParams length:sizeof(aPTCameraParams) atIndex:2];
+      [anEncoder setBuffer:myVertexBuffer offset:0 atIndex:3];
+      [anEncoder setBuffer:myIndexBuffer offset:0 atIndex:4];
+      [anEncoder setBuffer:myMaterialBuffer offset:0 atIndex:5];
+      [anEncoder setBuffer:myMaterialIndexBuffer offset:0 atIndex:6];
+      [anEncoder setBuffer:myLightBuffer offset:0 atIndex:7];
+      [anEncoder setBuffer:myRandomSeedBuffer offset:0 atIndex:8];
+      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+      [anEncoder endEncoding];
+    }
+
+    // Increment frame index for next accumulation
+    myFrameIndex++;
+    return;
   }
 
   // Camera parameters

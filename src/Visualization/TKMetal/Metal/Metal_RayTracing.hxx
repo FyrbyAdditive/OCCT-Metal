@@ -194,6 +194,19 @@ public:
   //! Return true if refractions are enabled.
   bool IsRefractionsEnabled() const { return myRefractionsEnabled; }
 
+  //! Set path tracing enabled (Phase 9).
+  void SetPathTracingEnabled(bool theEnabled) { myPathTracingEnabled = theEnabled; }
+
+  //! Return true if path tracing is enabled.
+  bool IsPathTracingEnabled() const { return myPathTracingEnabled; }
+
+  //! Reset accumulation buffer for path tracing (Phase 9).
+  //! Call this when camera or scene changes.
+  void ResetAccumulation() { myFrameIndex = 0; }
+
+  //! Return current frame index for path tracing accumulation.
+  uint32_t FrameIndex() const { return myFrameIndex; }
+
 private:
 
 #ifdef __OBJC__
@@ -213,6 +226,9 @@ private:
   id<MTLComputePipelineState> myRefractionColorPipeline;   //!< Phase 6: Compute refraction colors
   id<MTLComputePipelineState> myShadeWithAllPipeline;      //!< Phase 6: Full shading with reflections + refractions
   id<MTLComputePipelineState> myShadeWithTexturesPipeline; //!< Phase 8: Full shading with textures
+  id<MTLComputePipelineState> myPathTraceRayGenPipeline;   //!< Phase 9: Path tracing ray generation with jitter
+  id<MTLComputePipelineState> myPathTracePipeline;         //!< Phase 9: Path tracing kernel
+  id<MTLComputePipelineState> myAccumulatePipeline;        //!< Phase 9: Accumulation kernel
 
   // Buffers
   id<MTLBuffer> myVertexBuffer;
@@ -239,6 +255,10 @@ private:
   id<MTLTexture> myNormalTextureArray;       //!< Phase 8: Normal map texture array
   id<MTLSamplerState> myTextureSampler;      //!< Phase 8: Texture sampler
 
+  // Phase 9: Path tracing buffers
+  id<MTLTexture> myAccumulationBuffer;       //!< Phase 9: Accumulated radiance (RGBA32Float)
+  id<MTLBuffer> myRandomSeedBuffer;          //!< Phase 9: Per-pixel RNG state
+
   // Shader library
   id<MTLLibrary> myShaderLibrary;
 #else
@@ -255,6 +275,9 @@ private:
   void* myRefractionColorPipeline;
   void* myShadeWithAllPipeline;
   void* myShadeWithTexturesPipeline;
+  void* myPathTraceRayGenPipeline;
+  void* myPathTracePipeline;
+  void* myAccumulatePipeline;
   void* myVertexBuffer;
   void* myIndexBuffer;
   void* myMaterialBuffer;
@@ -276,6 +299,8 @@ private:
   void* myDiffuseTextureArray;
   void* myNormalTextureArray;
   void* myTextureSampler;
+  void* myAccumulationBuffer;
+  void* myRandomSeedBuffer;
   void* myShaderLibrary;
 #endif
 
@@ -288,7 +313,9 @@ private:
   bool myReflectionsEnabled;
   bool myRefractionsEnabled;
   bool myTexturingEnabled;
+  bool myPathTracingEnabled;
   bool myIsValid;
+  uint32_t myFrameIndex;           //!< Phase 9: Current frame for accumulation
 };
 
 DEFINE_STANDARD_HANDLE(Metal_RayTracing, Standard_Transient)
