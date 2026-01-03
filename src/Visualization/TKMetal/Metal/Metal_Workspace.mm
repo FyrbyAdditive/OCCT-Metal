@@ -506,3 +506,126 @@ void Metal_Workspace::ApplyStencilTestState()
     }
   }
 }
+
+// =======================================================================
+// function : ApplyFlipping
+// purpose  : Apply flipping transformation based on reference plane
+// =======================================================================
+void Metal_Workspace::ApplyFlipping(const gp_Ax2& theRefPlane)
+{
+  // Extract reference system vectors
+  NCollection_Vec4<float> aRefOrigin(
+    static_cast<float>(theRefPlane.Location().X()),
+    static_cast<float>(theRefPlane.Location().Y()),
+    static_cast<float>(theRefPlane.Location().Z()),
+    1.0f);
+  NCollection_Vec4<float> aRefX(
+    static_cast<float>(theRefPlane.XDirection().X()),
+    static_cast<float>(theRefPlane.XDirection().Y()),
+    static_cast<float>(theRefPlane.XDirection().Z()),
+    1.0f);
+  NCollection_Vec4<float> aRefY(
+    static_cast<float>(theRefPlane.YDirection().X()),
+    static_cast<float>(theRefPlane.YDirection().Y()),
+    static_cast<float>(theRefPlane.YDirection().Z()),
+    1.0f);
+  NCollection_Vec4<float> aRefZ(
+    static_cast<float>(theRefPlane.Axis().Direction().X()),
+    static_cast<float>(theRefPlane.Axis().Direction().Y()),
+    static_cast<float>(theRefPlane.Axis().Direction().Z()),
+    1.0f);
+
+  // Get view matrix from model matrix (assumes model is applied before view)
+  // In our system, myModelMatrix typically holds model-view combined
+  NCollection_Mat4<float> aModelView = myModelMatrix;
+
+  // Transform reference system by model-view matrix
+  NCollection_Vec4<float> aMVOrigin = aModelView * aRefOrigin;
+  NCollection_Vec4<float> aMVRefX = aModelView * NCollection_Vec4<float>(
+    aRefX.x() + aRefOrigin.x(),
+    aRefX.y() + aRefOrigin.y(),
+    aRefX.z() + aRefOrigin.z(), 1.0f);
+  NCollection_Vec4<float> aMVRefY = aModelView * NCollection_Vec4<float>(
+    aRefY.x() + aRefOrigin.x(),
+    aRefY.y() + aRefOrigin.y(),
+    aRefY.z() + aRefOrigin.z(), 1.0f);
+  NCollection_Vec4<float> aMVRefZ = aModelView * NCollection_Vec4<float>(
+    aRefZ.x() + aRefOrigin.x(),
+    aRefZ.y() + aRefOrigin.y(),
+    aRefZ.z() + aRefOrigin.z(), 1.0f);
+
+  // Compute transformed directions
+  NCollection_Vec3<float> aDirX(
+    aMVRefX.x() - aMVOrigin.x(),
+    aMVRefX.y() - aMVOrigin.y(),
+    aMVRefX.z() - aMVOrigin.z());
+  NCollection_Vec3<float> aDirY(
+    aMVRefY.x() - aMVOrigin.x(),
+    aMVRefY.y() - aMVOrigin.y(),
+    aMVRefY.z() - aMVOrigin.z());
+  NCollection_Vec3<float> aDirZ(
+    aMVRefZ.x() - aMVOrigin.x(),
+    aMVRefZ.y() - aMVOrigin.y(),
+    aMVRefZ.z() - aMVOrigin.z());
+
+  // Check if axes are reversed relative to screen axes
+  bool isReversedX = aDirX.Dot(NCollection_Vec3<float>(1.0f, 0.0f, 0.0f)) < 0.0f;
+  bool isReversedY = aDirY.Dot(NCollection_Vec3<float>(0.0f, 1.0f, 0.0f)) < 0.0f;
+  bool isReversedZ = aDirZ.Dot(NCollection_Vec3<float>(0.0f, 0.0f, 1.0f)) < 0.0f;
+
+  // Compute flipping transformation
+  NCollection_Mat4<float> aTransform;
+  aTransform.InitIdentity();
+
+  if ((isReversedX || isReversedY) && !isReversedZ)
+  {
+    // Invert by Z axis: left, up vectors mirrored
+    aTransform.SetValue(0, 0, -1.0f);
+    aTransform.SetValue(1, 1, -1.0f);
+  }
+  else if (isReversedY && isReversedZ)
+  {
+    // Rotate by X axis: up, forward vectors mirrored
+    aTransform.SetValue(1, 1, -1.0f);
+    aTransform.SetValue(2, 2, -1.0f);
+  }
+  else if (isReversedZ)
+  {
+    // Rotate by Y axis: left, forward vectors mirrored
+    aTransform.SetValue(0, 0, -1.0f);
+    aTransform.SetValue(2, 2, -1.0f);
+  }
+  else
+  {
+    // No flipping needed
+    return;
+  }
+
+  // Build reference axes transformation matrix
+  NCollection_Mat4<float> aRefAxes;
+  aRefAxes.InitIdentity();
+  aRefAxes.SetValue(0, 0, aRefX.x());
+  aRefAxes.SetValue(1, 0, aRefX.y());
+  aRefAxes.SetValue(2, 0, aRefX.z());
+  aRefAxes.SetValue(0, 1, aRefY.x());
+  aRefAxes.SetValue(1, 1, aRefY.y());
+  aRefAxes.SetValue(2, 1, aRefY.z());
+  aRefAxes.SetValue(0, 2, aRefZ.x());
+  aRefAxes.SetValue(1, 2, aRefZ.y());
+  aRefAxes.SetValue(2, 2, aRefZ.z());
+  aRefAxes.SetValue(0, 3, aRefOrigin.x());
+  aRefAxes.SetValue(1, 3, aRefOrigin.y());
+  aRefAxes.SetValue(2, 3, aRefOrigin.z());
+
+  NCollection_Mat4<float> aRefInv;
+  if (!aRefAxes.Inverted(aRefInv))
+  {
+    return; // Cannot invert, skip flipping
+  }
+
+  // Apply transformation: move to reference origin, flip, move back
+  aTransform = aRefAxes * aTransform * aRefInv;
+
+  // Update model matrix with flipping transform
+  myModelMatrix = myModelMatrix * aTransform;
+}

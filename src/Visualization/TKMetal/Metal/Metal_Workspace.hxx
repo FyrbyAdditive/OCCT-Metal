@@ -24,6 +24,9 @@
 #include <Metal_RenderFilter.hxx>
 #include <NCollection_Mat4.hxx>
 #include <Quantity_ColorRGBA.hxx>
+#include <gp_Ax2.hxx>
+
+#include <vector>
 
 class Metal_TextureSet;
 
@@ -184,6 +187,27 @@ public:
   //! Apply stencil test depth-stencil state.
   Standard_EXPORT void ApplyStencilTestState();
 
+  //! Push current model matrix onto stack.
+  void PushModelMatrix()
+  {
+    myModelMatrixStack.push_back(myModelMatrix);
+  }
+
+  //! Pop model matrix from stack.
+  void PopModelMatrix()
+  {
+    if (!myModelMatrixStack.empty())
+    {
+      myModelMatrix = myModelMatrixStack.back();
+      myModelMatrixStack.pop_back();
+    }
+  }
+
+  //! Apply flipping transformation based on reference plane.
+  //! This flips geometry when viewing from behind the reference plane.
+  //! @param theRefPlane reference coordinate system for flipping
+  Standard_EXPORT void ApplyFlipping(const gp_Ax2& theRefPlane);
+
   //! Return current render filter.
   Metal_RenderFilter RenderFilter() const { return myRenderFilter; }
 
@@ -264,6 +288,7 @@ protected:
   Graphic3d_PolygonOffset        myPolygonOffset;    //!< current polygon offset
   bool                           myUseDepthWrite;    //!< depth write flag
   int                            myNbSkippedTransparent; //!< number of skipped transparent elements
+  std::vector<NCollection_Mat4<float>> myModelMatrixStack; //!< model matrix stack for push/pop
 };
 
 #endif // Metal_Workspace_HeaderFile

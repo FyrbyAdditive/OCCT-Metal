@@ -215,6 +215,13 @@ void Metal_Group::Render(Metal_Workspace* theWorkspace) const
     theWorkspace->ApplyStencilTestState();
   }
 
+  // Apply flipping if enabled for this group
+  if (myFlippingEnabled)
+  {
+    theWorkspace->PushModelMatrix();
+    theWorkspace->ApplyFlipping(myFlippingRefPlane);
+  }
+
   // Apply aspect to workspace
   if (!myAspect.IsNull())
   {
@@ -307,6 +314,12 @@ void Metal_Group::Render(Metal_Workspace* theWorkspace) const
     {
       aText->Render(theWorkspace);
     }
+  }
+
+  // Restore flipping if we applied it
+  if (myFlippingEnabled)
+  {
+    theWorkspace->PopModelMatrix();
   }
 
   // Restore previous stencil test state if we changed it
