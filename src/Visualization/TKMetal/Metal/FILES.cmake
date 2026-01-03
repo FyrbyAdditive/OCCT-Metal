@@ -37,6 +37,8 @@ set(OCCT_Metal_FILES
   Metal_Sampler.mm
   Metal_ShaderManager.hxx
   Metal_ShaderManager.mm
+  Metal_StereoComposer.hxx
+  Metal_StereoComposer.mm
   Metal_Structure.hxx
   Metal_Structure.mm
   Metal_Text.hxx
