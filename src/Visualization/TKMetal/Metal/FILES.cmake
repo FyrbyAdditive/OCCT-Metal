@@ -35,6 +35,8 @@ set(OCCT_Metal_FILES
   Metal_LayerList.hxx
   Metal_LayerList.mm
   Metal_LineAttribs.hxx
+  Metal_PointSprite.hxx
+  Metal_PointSprite.mm
   Metal_PostProcess.hxx
   Metal_PostProcess.mm
   Metal_PrimitiveArray.hxx
