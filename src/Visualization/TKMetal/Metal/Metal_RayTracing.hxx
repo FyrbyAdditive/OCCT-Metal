@@ -121,6 +121,14 @@ public:
                                  const Metal_RaytraceLight* theLights,
                                  int theLightCount);
 
+  //! Set per-vertex texture coordinates (Phase 7).
+  //! @param theCtx Metal context
+  //! @param theTexCoords array of UV coordinates (2 floats per vertex)
+  //! @param theVertexCount number of vertices
+  Standard_EXPORT void SetTexCoords(Metal_Context* theCtx,
+                                    const float* theTexCoords,
+                                    int theVertexCount);
+
   //! Perform ray tracing to an output texture.
   //! @param theCtx Metal context
   //! @param theCommandBuffer command buffer
@@ -169,6 +177,9 @@ private:
   id<MTLComputePipelineState> myShadePipeline;
   id<MTLComputePipelineState> myShadeNoShadowPipeline;
   id<MTLComputePipelineState> myShadowRayGenPipeline;
+  id<MTLComputePipelineState> myReflectionRayGenPipeline;  //!< Phase 5: Reflection ray generation
+  id<MTLComputePipelineState> myBounceColorPipeline;       //!< Phase 5: Compute bounce colors
+  id<MTLComputePipelineState> myShadeWithReflectionsPipeline; //!< Phase 5: Shade with reflections
 
   // Buffers
   id<MTLBuffer> myVertexBuffer;
@@ -180,6 +191,10 @@ private:
   id<MTLBuffer> myIntersectionBuffer;
   id<MTLBuffer> myShadowRayBuffer;           //!< Shadow rays
   id<MTLBuffer> myShadowIntersectionBuffer;  //!< Shadow ray intersections
+  id<MTLBuffer> myReflectionRayBuffer;       //!< Phase 5: Reflection rays
+  id<MTLBuffer> myReflectionIntersectionBuffer; //!< Phase 5: Reflection intersections
+  id<MTLBuffer> myBounceColorBuffer;         //!< Phase 5: Accumulated bounce colors
+  id<MTLBuffer> myTexCoordBuffer;            //!< Phase 7: Per-vertex texture coordinates
 
   // Shader library
   id<MTLLibrary> myShaderLibrary;
@@ -190,6 +205,9 @@ private:
   void* myShadePipeline;
   void* myShadeNoShadowPipeline;
   void* myShadowRayGenPipeline;
+  void* myReflectionRayGenPipeline;
+  void* myBounceColorPipeline;
+  void* myShadeWithReflectionsPipeline;
   void* myVertexBuffer;
   void* myIndexBuffer;
   void* myMaterialBuffer;
@@ -199,6 +217,10 @@ private:
   void* myIntersectionBuffer;
   void* myShadowRayBuffer;
   void* myShadowIntersectionBuffer;
+  void* myReflectionRayBuffer;
+  void* myReflectionIntersectionBuffer;
+  void* myBounceColorBuffer;
+  void* myTexCoordBuffer;
   void* myShaderLibrary;
 #endif
 

@@ -358,6 +358,259 @@ kernel void shadeNoShadow(
 
   output.write(color, gid);
 }
+
+// Phase 5: Generate reflection rays from hit points
+kernel void reflectionRayGen(
+  device Ray* reflectionRays [[buffer(0)]],
+  device const Intersection* intersections [[buffer(1)]],
+  device const Ray* incomingRays [[buffer(2)]],
+  constant CameraParams& camera [[buffer(3)]],
+  constant float3* vertices [[buffer(4)]],
+  constant uint* indices [[buffer(5)]],
+  constant RaytraceMaterial* materials [[buffer(6)]],
+  constant int* materialIndices [[buffer(7)]],
+  uint2 gid [[thread_position_in_grid]])
+{
+  if (gid.x >= uint(camera.resolution.x) || gid.y >= uint(camera.resolution.y)) return;
+
+  uint rayIndex = gid.y * uint(camera.resolution.x) + gid.x;
+  Intersection isect = intersections[rayIndex];
+
+  // Default: invalid ray
+  reflectionRays[rayIndex].origin = float3(0.0);
+  reflectionRays[rayIndex].minDistance = -1.0;
+  reflectionRays[rayIndex].direction = float3(0.0, 1.0, 0.0);
+  reflectionRays[rayIndex].maxDistance = 0.0;
+
+  if (isect.distance < 0.0) return;
+
+  // Get material
+  uint triIndex = uint(isect.primitiveIndex);
+  int matIdx = materialIndices[triIndex];
+  RaytraceMaterial mat = materials[matIdx];
+
+  // Only reflect if material is reflective
+  float reflectivity = mat.reflection.w;
+  if (reflectivity < 0.01) return;
+
+  // Compute hit point and normal
+  uint i0 = indices[triIndex * 3 + 0];
+  uint i1 = indices[triIndex * 3 + 1];
+  uint i2 = indices[triIndex * 3 + 2];
+
+  float3 v0 = vertices[i0];
+  float3 v1 = vertices[i1];
+  float3 v2 = vertices[i2];
+
+  float3 edge1 = v1 - v0;
+  float3 edge2 = v2 - v0;
+  float3 normal = normalize(cross(edge1, edge2));
+
+  float3 hitPoint = float3(incomingRays[rayIndex].origin) +
+                    isect.distance * float3(incomingRays[rayIndex].direction);
+  float3 inDir = normalize(float3(incomingRays[rayIndex].direction));
+
+  // Flip normal if backface
+  if (dot(normal, inDir) > 0.0) {
+    normal = -normal;
+  }
+
+  // Reflect direction
+  float3 reflectDir = reflect(inDir, normal);
+
+  // Offset origin to avoid self-intersection
+  float3 reflectOrigin = hitPoint + normal * 0.01;
+
+  reflectionRays[rayIndex].origin = reflectOrigin;
+  reflectionRays[rayIndex].minDistance = 0.001;
+  reflectionRays[rayIndex].direction = reflectDir;
+  reflectionRays[rayIndex].maxDistance = 1e38;
+}
+
+// Phase 5: Compute color for reflection bounce
+kernel void computeBounceColor(
+  device float4* bounceColors [[buffer(0)]],
+  device const Intersection* intersections [[buffer(1)]],
+  device const Ray* rays [[buffer(2)]],
+  constant CameraParams& camera [[buffer(3)]],
+  device const float3* vertices [[buffer(4)]],
+  device const uint* indices [[buffer(5)]],
+  constant RaytraceMaterial* materials [[buffer(6)]],
+  constant RaytraceLight* lights [[buffer(7)]],
+  device const int* materialIndices [[buffer(8)]],
+  uint2 gid [[thread_position_in_grid]])
+{
+  if (gid.x >= uint(camera.resolution.x) || gid.y >= uint(camera.resolution.y)) return;
+
+  uint rayIndex = gid.y * uint(camera.resolution.x) + gid.x;
+  Intersection isect = intersections[rayIndex];
+
+  float4 color;
+
+  if (isect.distance < 0.0) {
+    // Sky color for missed reflection rays
+    float3 dir = normalize(rays[rayIndex].direction);
+    float t = 0.5 * (dir.y + 1.0);
+    color = float4(mix(float3(0.2, 0.2, 0.25), float3(0.6, 0.8, 1.0), t), 1.0);
+  }
+  else {
+    uint triIndex = uint(isect.primitiveIndex);
+    uint i0 = indices[triIndex * 3 + 0];
+    uint i1 = indices[triIndex * 3 + 1];
+    uint i2 = indices[triIndex * 3 + 2];
+
+    float3 v0 = vertices[i0];
+    float3 v1 = vertices[i1];
+    float3 v2 = vertices[i2];
+
+    float3 edge1 = v1 - v0;
+    float3 edge2 = v2 - v0;
+    float3 normal = normalize(cross(edge1, edge2));
+
+    float3 hitPoint = rays[rayIndex].origin + isect.distance * rays[rayIndex].direction;
+
+    int matIdx = materialIndices[triIndex];
+    RaytraceMaterial mat = materials[matIdx];
+    float3 diffuseColor = mat.diffuse.rgb;
+
+    float3 rayDir = normalize(float3(rays[rayIndex].direction));
+    float3 faceNormal = dot(normal, rayDir) < 0.0 ? normal : -normal;
+
+    // Simple lighting for reflections
+    float3 totalLight = mat.emission.rgb + mat.ambient.rgb * 0.2;
+
+    for (int i = 0; i < camera.lightCount; ++i) {
+      RaytraceLight light = lights[i];
+      float3 lightDir;
+      float attenuation = 1.0;
+
+      if (light.position.w < 0.5) {
+        lightDir = normalize(-light.position.xyz);
+      } else {
+        float3 toLight = light.position.xyz - hitPoint;
+        float dist = length(toLight);
+        lightDir = toLight / dist;
+        attenuation = 1.0 / (1.0 + 0.05 * dist * dist);
+      }
+
+      float NdotL = max(dot(faceNormal, lightDir), 0.0);
+      totalLight += diffuseColor * light.emission.rgb * light.emission.w * NdotL * attenuation;
+
+      float3 viewDir = -rayDir;
+      float3 halfDir = normalize(lightDir + viewDir);
+      float NdotH = max(dot(faceNormal, halfDir), 0.0);
+      float spec = pow(NdotH, max(mat.specular.w, 1.0));
+      totalLight += mat.specular.rgb * light.emission.rgb * spec * attenuation * 0.5;
+    }
+
+    color = float4(clamp(totalLight, 0.0, 1.0), 1.0);
+  }
+
+  bounceColors[rayIndex] = color;
+}
+
+// Phase 5: Shade with reflections
+kernel void shadeWithReflections(
+  texture2d<float, access::write> output [[texture(0)]],
+  device const Intersection* intersections [[buffer(0)]],
+  device const Ray* rays [[buffer(1)]],
+  constant CameraParams& camera [[buffer(2)]],
+  device const float3* vertices [[buffer(3)]],
+  device const uint* indices [[buffer(4)]],
+  constant RaytraceMaterial* materials [[buffer(5)]],
+  constant RaytraceLight* lights [[buffer(6)]],
+  device const int* materialIndices [[buffer(7)]],
+  device const Intersection* shadowIntersections [[buffer(8)]],
+  device const float4* reflectionColors [[buffer(9)]],
+  uint2 gid [[thread_position_in_grid]])
+{
+  if (gid.x >= uint(camera.resolution.x) || gid.y >= uint(camera.resolution.y)) return;
+
+  uint rayIndex = gid.y * uint(camera.resolution.x) + gid.x;
+  uint pixelCount = uint(camera.resolution.x) * uint(camera.resolution.y);
+  Intersection isect = intersections[rayIndex];
+
+  float4 color;
+
+  if (isect.distance < 0.0) {
+    float3 dir = normalize(rays[rayIndex].direction);
+    float t = 0.5 * (dir.y + 1.0);
+    color = float4(mix(float3(0.1, 0.1, 0.15), float3(0.5, 0.7, 1.0), t), 1.0);
+  }
+  else {
+    uint triIndex = uint(isect.primitiveIndex);
+    uint i0 = indices[triIndex * 3 + 0];
+    uint i1 = indices[triIndex * 3 + 1];
+    uint i2 = indices[triIndex * 3 + 2];
+
+    float3 v0 = vertices[i0];
+    float3 v1 = vertices[i1];
+    float3 v2 = vertices[i2];
+
+    float3 edge1 = v1 - v0;
+    float3 edge2 = v2 - v0;
+    float3 normal = normalize(cross(edge1, edge2));
+
+    float3 hitPoint = rays[rayIndex].origin + isect.distance * rays[rayIndex].direction;
+
+    int matIdx = materialIndices[triIndex];
+    RaytraceMaterial mat = materials[matIdx];
+    float3 diffuseColor = mat.diffuse.rgb;
+
+    float3 rayDir = normalize(float3(rays[rayIndex].direction));
+    float3 faceNormal = dot(normal, rayDir) < 0.0 ? normal : -normal;
+
+    // Base lighting
+    float3 totalLight = mat.emission.rgb + mat.ambient.rgb * 0.15;
+
+    for (int i = 0; i < camera.lightCount; ++i) {
+      RaytraceLight light = lights[i];
+      float3 lightDir;
+      float attenuation = 1.0;
+
+      if (light.position.w < 0.5) {
+        lightDir = normalize(-light.position.xyz);
+      } else {
+        float3 toLight = light.position.xyz - hitPoint;
+        float dist = length(toLight);
+        lightDir = toLight / dist;
+        attenuation = 1.0 / (1.0 + 0.05 * dist * dist);
+      }
+
+      // Shadow
+      float shadowFactor = 1.0;
+      if (camera.shadowsEnabled > 0) {
+        uint shadowIdx = i * pixelCount + rayIndex;
+        Intersection shadowIsect = shadowIntersections[shadowIdx];
+        if (shadowIsect.distance > 0.0) {
+          shadowFactor = 0.0;
+        }
+      }
+
+      float NdotL = max(dot(faceNormal, lightDir), 0.0);
+      totalLight += shadowFactor * diffuseColor * light.emission.rgb * light.emission.w * NdotL * attenuation;
+
+      float3 viewDir = normalize(camera.origin - hitPoint);
+      float3 halfDir = normalize(lightDir + viewDir);
+      float NdotH = max(dot(faceNormal, halfDir), 0.0);
+      float shininess = max(mat.specular.w, 1.0);
+      float spec = pow(NdotH, shininess);
+      totalLight += shadowFactor * mat.specular.rgb * light.emission.rgb * spec * attenuation;
+    }
+
+    // Add reflection contribution
+    float reflectivity = mat.reflection.w;
+    if (camera.reflectionsEnabled > 0 && reflectivity > 0.01) {
+      float3 reflectionColor = reflectionColors[rayIndex].rgb;
+      float3 tint = mat.reflection.rgb;
+      totalLight = totalLight * (1.0 - reflectivity) + reflectionColor * tint * reflectivity;
+    }
+
+    color = float4(clamp(totalLight, 0.0, 1.0), 1.0);
+  }
+
+  output.write(color, gid);
+}
 )";
 
 // =======================================================================
@@ -371,6 +624,9 @@ Metal_RayTracing::Metal_RayTracing()
   myShadePipeline(nil),
   myShadeNoShadowPipeline(nil),
   myShadowRayGenPipeline(nil),
+  myReflectionRayGenPipeline(nil),
+  myBounceColorPipeline(nil),
+  myShadeWithReflectionsPipeline(nil),
   myVertexBuffer(nil),
   myIndexBuffer(nil),
   myMaterialBuffer(nil),
@@ -380,6 +636,10 @@ Metal_RayTracing::Metal_RayTracing()
   myIntersectionBuffer(nil),
   myShadowRayBuffer(nil),
   myShadowIntersectionBuffer(nil),
+  myReflectionRayBuffer(nil),
+  myReflectionIntersectionBuffer(nil),
+  myBounceColorBuffer(nil),
+  myTexCoordBuffer(nil),
   myShaderLibrary(nil),
   myVertexCount(0),
   myTriangleCount(0),
@@ -512,6 +772,45 @@ bool Metal_RayTracing::Init(Metal_Context* theCtx)
     }
   }
 
+  // Phase 5: Create reflection ray generation pipeline
+  id<MTLFunction> aReflectionRayGenFunc = [myShaderLibrary newFunctionWithName:@"reflectionRayGen"];
+  if (aReflectionRayGenFunc != nil)
+  {
+    myReflectionRayGenPipeline = [aDevice newComputePipelineStateWithFunction:aReflectionRayGenFunc error:&anError];
+    if (myReflectionRayGenPipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: reflectionRayGen pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
+  // Phase 5: Create bounce color pipeline
+  id<MTLFunction> aBounceColorFunc = [myShaderLibrary newFunctionWithName:@"computeBounceColor"];
+  if (aBounceColorFunc != nil)
+  {
+    myBounceColorPipeline = [aDevice newComputePipelineStateWithFunction:aBounceColorFunc error:&anError];
+    if (myBounceColorPipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: computeBounceColor pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
+  // Phase 5: Create shade with reflections pipeline
+  id<MTLFunction> aShadeWithReflFunc = [myShaderLibrary newFunctionWithName:@"shadeWithReflections"];
+  if (aShadeWithReflFunc != nil)
+  {
+    myShadeWithReflectionsPipeline = [aDevice newComputePipelineStateWithFunction:aShadeWithReflFunc error:&anError];
+    if (myShadeWithReflectionsPipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: shadeWithReflections pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
   // Create ray intersector
   myRayIntersector = [[MPSRayIntersector alloc] initWithDevice:aDevice];
   myRayIntersector.rayDataType = MPSRayDataTypeOriginMinDistanceDirectionMaxDistance;
@@ -536,6 +835,9 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myShadePipeline = nil;
   myShadeNoShadowPipeline = nil;
   myShadowRayGenPipeline = nil;
+  myReflectionRayGenPipeline = nil;
+  myBounceColorPipeline = nil;
+  myShadeWithReflectionsPipeline = nil;
   myVertexBuffer = nil;
   myIndexBuffer = nil;
   myMaterialBuffer = nil;
@@ -545,6 +847,10 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myIntersectionBuffer = nil;
   myShadowRayBuffer = nil;
   myShadowIntersectionBuffer = nil;
+  myReflectionRayBuffer = nil;
+  myReflectionIntersectionBuffer = nil;
+  myBounceColorBuffer = nil;
+  myTexCoordBuffer = nil;
   myShaderLibrary = nil;
 
   myVertexCount = 0;
@@ -667,6 +973,27 @@ void Metal_RayTracing::SetLights(Metal_Context* theCtx,
 }
 
 // =======================================================================
+// function : SetTexCoords
+// purpose  : Set per-vertex texture coordinates (Phase 7)
+// =======================================================================
+void Metal_RayTracing::SetTexCoords(Metal_Context* theCtx,
+                                    const float* theTexCoords,
+                                    int theVertexCount)
+{
+  if (!myIsValid || theCtx == nullptr || theTexCoords == nullptr || theVertexCount <= 0)
+  {
+    return;
+  }
+
+  id<MTLDevice> aDevice = theCtx->Device();
+
+  size_t aSize = static_cast<size_t>(theVertexCount) * 2 * sizeof(float);
+  myTexCoordBuffer = [aDevice newBufferWithBytes:theTexCoords
+                                          length:aSize
+                                         options:MTLResourceStorageModeShared];
+}
+
+// =======================================================================
 // function : Trace
 // purpose  : Perform ray tracing
 // =======================================================================
@@ -726,6 +1053,28 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
     {
       myShadowIntersectionBuffer = [aDevice newBufferWithLength:aShadowIntersectionSize
                                                         options:MTLResourceStorageModePrivate];
+    }
+  }
+
+  // Phase 5: Reflection buffers (only if reflections enabled and we have the pipeline)
+  bool aUseReflections = myReflectionsEnabled && myReflectionRayGenPipeline != nil;
+  size_t aColorBufferSize = aRayCount * sizeof(float) * 4;
+  if (aUseReflections)
+  {
+    if (myReflectionRayBuffer == nil || [myReflectionRayBuffer length] < aRayBufferSize)
+    {
+      myReflectionRayBuffer = [aDevice newBufferWithLength:aRayBufferSize
+                                                   options:MTLResourceStorageModePrivate];
+    }
+    if (myReflectionIntersectionBuffer == nil || [myReflectionIntersectionBuffer length] < aIntersectionBufferSize)
+    {
+      myReflectionIntersectionBuffer = [aDevice newBufferWithLength:aIntersectionBufferSize
+                                                            options:MTLResourceStorageModePrivate];
+    }
+    if (myBounceColorBuffer == nil || [myBounceColorBuffer length] < aColorBufferSize)
+    {
+      myBounceColorBuffer = [aDevice newBufferWithLength:aColorBufferSize
+                                                 options:MTLResourceStorageModePrivate];
     }
   }
 
@@ -812,11 +1161,66 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
     }
   }
 
-  // Step 4: Shade intersections
+  // Step 4: Generate and trace reflection rays (Phase 5)
+  if (aUseReflections)
+  {
+    MTLSize aThreadgroupSize = MTLSizeMake(8, 8, 1);
+    MTLSize aThreadgroups = MTLSizeMake((aWidth + 7) / 8, (aHeight + 7) / 8, 1);
+
+    // 4a: Generate reflection rays from primary hits
+    {
+      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+      [anEncoder setComputePipelineState:myReflectionRayGenPipeline];
+      [anEncoder setBuffer:myReflectionRayBuffer offset:0 atIndex:0];
+      [anEncoder setBuffer:myIntersectionBuffer offset:0 atIndex:1];
+      [anEncoder setBuffer:myRayBuffer offset:0 atIndex:2];
+      [anEncoder setBytes:&aCameraParams length:sizeof(aCameraParams) atIndex:3];
+      [anEncoder setBuffer:myVertexBuffer offset:0 atIndex:4];
+      [anEncoder setBuffer:myIndexBuffer offset:0 atIndex:5];
+      [anEncoder setBuffer:myMaterialBuffer offset:0 atIndex:6];
+      [anEncoder setBuffer:myMaterialIndexBuffer offset:0 atIndex:7];
+      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+      [anEncoder endEncoding];
+    }
+
+    // 4b: Intersect reflection rays
+    [myRayIntersector encodeIntersectionToCommandBuffer:theCommandBuffer
+                                       intersectionType:MPSIntersectionTypeNearest
+                                              rayBuffer:myReflectionRayBuffer
+                                        rayBufferOffset:0
+                                     intersectionBuffer:myReflectionIntersectionBuffer
+                               intersectionBufferOffset:0
+                                               rayCount:aRayCount
+                                  accelerationStructure:myAccelerationStructure];
+
+    // 4c: Compute colors for what reflections hit
+    {
+      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+      [anEncoder setComputePipelineState:myBounceColorPipeline];
+      [anEncoder setBuffer:myBounceColorBuffer offset:0 atIndex:0];
+      [anEncoder setBuffer:myReflectionIntersectionBuffer offset:0 atIndex:1];
+      [anEncoder setBuffer:myReflectionRayBuffer offset:0 atIndex:2];
+      [anEncoder setBytes:&aCameraParams length:sizeof(aCameraParams) atIndex:3];
+      [anEncoder setBuffer:myVertexBuffer offset:0 atIndex:4];
+      [anEncoder setBuffer:myIndexBuffer offset:0 atIndex:5];
+      [anEncoder setBuffer:myMaterialBuffer offset:0 atIndex:6];
+      [anEncoder setBuffer:myLightBuffer offset:0 atIndex:7];
+      [anEncoder setBuffer:myMaterialIndexBuffer offset:0 atIndex:8];
+      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+      [anEncoder endEncoding];
+    }
+  }
+
+  // Step 5: Shade intersections
   {
     id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
 
-    if (aUseShadows)
+    if (aUseReflections)
+    {
+      // Use shade kernel with reflection support
+      [anEncoder setComputePipelineState:myShadeWithReflectionsPipeline];
+    }
+    else if (aUseShadows)
     {
       // Use shade kernel with shadow support
       [anEncoder setComputePipelineState:myShadePipeline];
@@ -857,9 +1261,15 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
     }
 
     // Shadow intersection buffer (only used if shadows enabled)
-    if (aUseShadows)
+    if (aUseShadows || aUseReflections)
     {
       [anEncoder setBuffer:myShadowIntersectionBuffer offset:0 atIndex:8];
+    }
+
+    // Reflection color buffer (only used if reflections enabled)
+    if (aUseReflections)
+    {
+      [anEncoder setBuffer:myBounceColorBuffer offset:0 atIndex:9];
     }
 
     MTLSize aThreadgroupSize = MTLSizeMake(8, 8, 1);
