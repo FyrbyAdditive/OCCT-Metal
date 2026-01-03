@@ -261,6 +261,7 @@ protected:
 
   Aspect_FillMethod                 myBgImageStyle;    //!< Background image style
   occ::handle<Metal_Texture>        myBgTexture;       //!< Background texture
+  occ::handle<Metal_Texture>        myEnvCubemap;      //!< Environment cubemap texture
 
   // Layer management
   NCollection_List<occ::handle<Graphic3d_Layer>> myLayers; //!< Z-layers (ordered list)

@@ -880,8 +880,34 @@ void Metal_View::SetImageBasedLighting(bool theToEnableIBL)
 // =======================================================================
 void Metal_View::SetTextureEnv(const occ::handle<Graphic3d_TextureEnv>& theTextureEnv)
 {
-  (void)theTextureEnv;
-  // Environment texture support will be implemented in later phases
+  // Release existing environment texture
+  if (!myEnvCubemap.IsNull())
+  {
+    myEnvCubemap->Release(myContext.get());
+    myEnvCubemap.Nullify();
+  }
+
+  // Create new environment texture if provided
+  if (!theTextureEnv.IsNull() && !myContext.IsNull())
+  {
+    occ::handle<Image_PixMap> anImage = theTextureEnv->GetImage(occ::handle<Image_SupportedFormats>());
+    if (!anImage.IsNull())
+    {
+      myEnvCubemap = new Metal_Texture();
+      if (!myEnvCubemap->Create2D(myContext.get(), *anImage, true))
+      {
+        myContext->Messenger()->SendWarning() << "Metal_View: Failed to create environment texture";
+        myEnvCubemap.Nullify();
+      }
+      else
+      {
+        myContext->Messenger()->SendInfo() << "Metal_View: Environment texture created ("
+                                           << anImage->Width() << "x" << anImage->Height() << ")";
+      }
+    }
+  }
+
+  myBackBufferRestored = false;
 }
 
 // =======================================================================
@@ -1391,7 +1417,7 @@ void Metal_View::drawTexturedBackground(void* theEncoderPtr, int theWidth, int t
       aUniforms.fillMethod = 0;
       break;
 
-    case Aspect_FM_TILE:
+    case Aspect_FM_TILED:
       // Tile - repeat based on viewport/texture ratio
       aUniforms.textureScale[0] = aViewWidth / aTexWidth;
       aUniforms.textureScale[1] = aViewHeight / aTexHeight;
@@ -1433,8 +1459,8 @@ void Metal_View::drawTexturedBackground(void* theEncoderPtr, int theWidth, int t
   MTLSamplerDescriptor* samplerDesc = [[MTLSamplerDescriptor alloc] init];
   samplerDesc.minFilter = MTLSamplerMinMagFilterLinear;
   samplerDesc.magFilter = MTLSamplerMinMagFilterLinear;
-  samplerDesc.sAddressMode = (myBgImageStyle == Aspect_FM_TILE) ? MTLSamplerAddressModeRepeat : MTLSamplerAddressModeClampToEdge;
-  samplerDesc.tAddressMode = (myBgImageStyle == Aspect_FM_TILE) ? MTLSamplerAddressModeRepeat : MTLSamplerAddressModeClampToEdge;
+  samplerDesc.sAddressMode = (myBgImageStyle == Aspect_FM_TILED) ? MTLSamplerAddressModeRepeat : MTLSamplerAddressModeClampToEdge;
+  samplerDesc.tAddressMode = (myBgImageStyle == Aspect_FM_TILED) ? MTLSamplerAddressModeRepeat : MTLSamplerAddressModeClampToEdge;
 
   id<MTLSamplerState> sampler = [myContext->Device() newSamplerStateWithDescriptor:samplerDesc];
   [aRenderEncoder setFragmentSamplerState:sampler atIndex:0];
