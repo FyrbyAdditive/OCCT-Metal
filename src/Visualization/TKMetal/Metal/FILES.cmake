@@ -4,6 +4,8 @@ set(OCCT_Metal_FILES_LOCATION "${CMAKE_CURRENT_LIST_DIR}")
 set(OCCT_Metal_FILES
   Metal_Buffer.hxx
   Metal_Buffer.mm
+  Metal_CappingAlgo.hxx
+  Metal_CappingAlgo.mm
   Metal_Caps.hxx
   Metal_Caps.mm
   Metal_Clipping.hxx
@@ -20,6 +22,8 @@ set(OCCT_Metal_FILES
   Metal_Group.mm
   Metal_IndexBuffer.hxx
   Metal_IndexBuffer.mm
+  Metal_InstanceBuffer.hxx
+  Metal_InstanceBuffer.mm
   Metal_PrimitiveArray.hxx
   Metal_PrimitiveArray.mm
   Metal_RenderFilter.hxx

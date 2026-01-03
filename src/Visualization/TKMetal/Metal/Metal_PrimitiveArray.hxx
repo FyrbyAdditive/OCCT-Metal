@@ -20,6 +20,7 @@
 #include <Graphic3d_BoundBuffer.hxx>
 #include <Metal_VertexBuffer.hxx>
 #include <Metal_IndexBuffer.hxx>
+#include <Metal_InstanceBuffer.hxx>
 
 #ifdef __OBJC__
 #import <Metal/Metal.h>
@@ -52,6 +53,14 @@ public:
 
   //! Render the primitive array.
   Standard_EXPORT void Render(Metal_Workspace* theWorkspace) const;
+
+  //! Render the primitive array with hardware instancing.
+  //! @param theWorkspace workspace for rendering
+  //! @param theInstanceBuffer buffer containing per-instance data
+  //! @param theInstanceBufferIndex Metal buffer index for instance data
+  Standard_EXPORT void RenderInstanced(Metal_Workspace* theWorkspace,
+                                       const occ::handle<Metal_InstanceBuffer>& theInstanceBuffer,
+                                       int theInstanceBufferIndex = 10) const;
 
   //! Render edges of the primitive array (for triangle primitives, renders as lines).
   Standard_EXPORT void RenderEdges(Metal_Workspace* theWorkspace) const;

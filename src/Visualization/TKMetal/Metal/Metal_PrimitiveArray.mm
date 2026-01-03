@@ -252,6 +252,89 @@ void Metal_PrimitiveArray::Render(Metal_Workspace* theWorkspace) const
 }
 
 // =======================================================================
+// function : RenderInstanced
+// purpose  : Render the primitive array with hardware instancing
+// =======================================================================
+void Metal_PrimitiveArray::RenderInstanced(Metal_Workspace* theWorkspace,
+                                           const occ::handle<Metal_InstanceBuffer>& theInstanceBuffer,
+                                           int theInstanceBufferIndex) const
+{
+  if (!myIsInitialized || theWorkspace == nullptr)
+  {
+    return;
+  }
+
+  if (theInstanceBuffer.IsNull() || !theInstanceBuffer->IsValid())
+  {
+    // Fall back to single instance if no instance buffer
+    Render(theWorkspace);
+    return;
+  }
+
+  id<MTLRenderCommandEncoder> anEncoder = theWorkspace->ActiveEncoder();
+  if (anEncoder == nil)
+  {
+    return;
+  }
+
+  // Bind vertex buffers
+  int aBufferIdx = 0;
+  if (!myPositionVbo.IsNull() && myPositionVbo->IsValid())
+  {
+    [anEncoder setVertexBuffer:myPositionVbo->Buffer()
+                        offset:0
+                       atIndex:aBufferIdx++];
+  }
+  if (!myNormalVbo.IsNull() && myNormalVbo->IsValid())
+  {
+    [anEncoder setVertexBuffer:myNormalVbo->Buffer()
+                        offset:0
+                       atIndex:aBufferIdx++];
+  }
+  if (!myColorVbo.IsNull() && myColorVbo->IsValid())
+  {
+    [anEncoder setVertexBuffer:myColorVbo->Buffer()
+                        offset:0
+                       atIndex:aBufferIdx++];
+  }
+  if (!myTexCoordVbo.IsNull() && myTexCoordVbo->IsValid())
+  {
+    [anEncoder setVertexBuffer:myTexCoordVbo->Buffer()
+                        offset:0
+                       atIndex:aBufferIdx++];
+  }
+
+  // Bind instance buffer at specified index
+  [anEncoder setVertexBuffer:theInstanceBuffer->Buffer()
+                      offset:0
+                     atIndex:theInstanceBufferIndex];
+
+  // Draw with instancing
+  MTLPrimitiveType aPrimType = MetalPrimitiveType();
+  NSUInteger anInstanceCount = static_cast<NSUInteger>(theInstanceBuffer->InstanceCount());
+
+  if (!myIndexBuffer.IsNull() && myIndexBuffer->IsValid())
+  {
+    // Indexed instanced drawing
+    MTLIndexType anIndexType = myIndexBuffer->MetalIndexType();
+    [anEncoder drawIndexedPrimitives:aPrimType
+                          indexCount:static_cast<NSUInteger>(myNbIndices)
+                           indexType:anIndexType
+                         indexBuffer:myIndexBuffer->Buffer()
+                   indexBufferOffset:0
+                       instanceCount:anInstanceCount];
+  }
+  else
+  {
+    // Non-indexed instanced drawing
+    [anEncoder drawPrimitives:aPrimType
+                  vertexStart:0
+                  vertexCount:static_cast<NSUInteger>(myNbVertices)
+                instanceCount:anInstanceCount];
+  }
+}
+
+// =======================================================================
 // function : RenderEdges
 // purpose  : Render edges of the primitive array
 // =======================================================================
