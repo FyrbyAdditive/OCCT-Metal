@@ -59,6 +59,7 @@ set(OCCT_Metal_FILES
   Metal_Sampler.mm
   Metal_ShaderManager.hxx
   Metal_ShaderManager.mm
+  Metal_StencilOps.hxx
   Metal_StereoComposer.hxx
   Metal_StereoComposer.mm
   Metal_Structure.hxx
