@@ -34,6 +34,7 @@ set(OCCT_Metal_FILES
   Metal_LayerFilter.hxx
   Metal_LayerList.hxx
   Metal_LayerList.mm
+  Metal_LineAttribs.hxx
   Metal_PostProcess.hxx
   Metal_PostProcess.mm
   Metal_PrimitiveArray.hxx

@@ -97,6 +97,17 @@ struct Metal_ClipPlaneUniforms
   int   Padding[3];
 };
 
+//! Line rendering uniform data.
+struct Metal_LineUniforms
+{
+  float    Width;          //!< line width in pixels
+  float    Feather;        //!< line edge feather amount
+  uint32_t Pattern;        //!< stipple pattern (16-bit, stored as 32-bit)
+  uint32_t Factor;         //!< stipple factor (multiplier)
+  float    Viewport[2];    //!< viewport size for stipple calculation
+  float    Padding[2];
+};
+
 //! Shader program configuration key.
 struct Metal_ShaderProgramKey
 {
@@ -222,6 +233,30 @@ public: //! @name Clipping planes
   //! Return clipping plane uniforms.
   const Metal_ClipPlaneUniforms& ClipPlaneUniforms() const { return myClipPlaneUniforms; }
 
+public: //! @name Line attributes
+
+  //! Set line rendering attributes.
+  void SetLineWidth(float theWidth) { myLineUniforms.Width = theWidth; }
+
+  //! Set line edge feather.
+  void SetLineFeather(float theFeather) { myLineUniforms.Feather = theFeather; }
+
+  //! Set line stipple pattern (16-bit).
+  void SetLinePattern(uint16_t thePattern) { myLineUniforms.Pattern = thePattern; }
+
+  //! Set line stipple factor (1-256).
+  void SetLineFactor(uint16_t theFactor) { myLineUniforms.Factor = theFactor; }
+
+  //! Set viewport size for stipple calculations.
+  void SetViewportSize(float theWidth, float theHeight)
+  {
+    myLineUniforms.Viewport[0] = theWidth;
+    myLineUniforms.Viewport[1] = theHeight;
+  }
+
+  //! Return line uniforms.
+  const Metal_LineUniforms& LineUniforms() const { return myLineUniforms; }
+
 public: //! @name Shader program access
 
   //! Get or create shader program for specified shading model and configuration.
@@ -302,6 +337,9 @@ protected:
 
   // Clipping
   Metal_ClipPlaneUniforms myClipPlaneUniforms;
+
+  // Line attributes
+  Metal_LineUniforms myLineUniforms;
 
   // Shading model
   Graphic3d_TypeOfShadingModel myShadingModel;

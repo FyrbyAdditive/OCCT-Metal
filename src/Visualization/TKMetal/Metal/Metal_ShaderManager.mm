@@ -62,6 +62,15 @@ Metal_ShaderManager::Metal_ShaderManager(Metal_Context* theCtx)
   // Initialize clipping uniforms
   memset(&myClipPlaneUniforms, 0, sizeof(myClipPlaneUniforms));
 
+  // Initialize line uniforms
+  memset(&myLineUniforms, 0, sizeof(myLineUniforms));
+  myLineUniforms.Width = 1.0f;
+  myLineUniforms.Feather = 1.0f;
+  myLineUniforms.Pattern = 0xFFFF;  // solid line
+  myLineUniforms.Factor = 1;
+  myLineUniforms.Viewport[0] = 800.0f;
+  myLineUniforms.Viewport[1] = 600.0f;
+
   // Create shader library
   createShaderLibrary();
 }
