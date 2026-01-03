@@ -100,15 +100,16 @@ kernel void rayGen(
   rays[rayIndex].maxDistance = INFINITY;
 }
 
-// Generate shadow rays from hit points toward light
-kernel void shadowRayGen(
+// Generate shadow rays from hit points toward a specific light
+kernel void shadowRayGenForLight(
   device Ray* shadowRays [[buffer(0)]],
   device const Intersection* primaryIntersections [[buffer(1)]],
   device const Ray* primaryRays [[buffer(2)]],
   constant CameraParams& camera [[buffer(3)]],
   constant float3* vertices [[buffer(4)]],
   constant uint* indices [[buffer(5)]],
-  constant RaytraceLight& light [[buffer(6)]],
+  constant RaytraceLight* lights [[buffer(6)]],
+  constant int& lightIndex [[buffer(7)]],
   uint2 gid [[thread_position_in_grid]])
 {
   if (gid.x >= uint(camera.resolution.x) || gid.y >= uint(camera.resolution.y)) {
@@ -127,6 +128,8 @@ kernel void shadowRayGen(
   if (isect.distance < 0.0) {
     return;  // No primary hit, no shadow ray needed
   }
+
+  RaytraceLight light = lights[lightIndex];
 
   // Compute hit point
   float3 hitPoint = float3(primaryRays[rayIndex].origin) +
@@ -149,7 +152,7 @@ kernel void shadowRayGen(
   }
 
   // Offset origin slightly to avoid self-intersection
-  float3 shadowOrigin = hitPoint + lightDir * 0.001;
+  float3 shadowOrigin = hitPoint + lightDir * 0.01;
 
   shadowRays[rayIndex].origin = shadowOrigin;
   shadowRays[rayIndex].minDistance = 0.001;
@@ -157,7 +160,7 @@ kernel void shadowRayGen(
   shadowRays[rayIndex].maxDistance = maxDist;
 }
 
-// Shade intersections with shadow support
+// Shade intersections with per-light shadow support
 kernel void shade(
   texture2d<float, access::write> output [[texture(0)]],
   device const Intersection* intersections [[buffer(0)]],
@@ -177,6 +180,7 @@ kernel void shade(
 
   uint rayIndex = gid.y * uint(camera.resolution.x) + gid.x;
   Intersection isect = intersections[rayIndex];
+  uint pixelCount = uint(camera.resolution.x) * uint(camera.resolution.y);
 
   float4 color;
 
@@ -218,15 +222,7 @@ kernel void shade(
     float3 totalLight = mat.emission.rgb;
 
     // Add ambient contribution
-    totalLight += mat.ambient.rgb * 0.2;
-
-    // Check shadow for first light (single light shadow in Phase 3)
-    bool inShadow = false;
-    if (camera.shadowsEnabled > 0) {
-      Intersection shadowIsect = shadowIntersections[rayIndex];
-      // If shadow ray hit something (distance > 0), we're in shadow
-      inShadow = (shadowIsect.distance > 0.0);
-    }
+    totalLight += mat.ambient.rgb * 0.15;
 
     for (int i = 0; i < camera.lightCount; ++i) {
       RaytraceLight light = lights[i];
@@ -241,13 +237,17 @@ kernel void shade(
         float3 toLight = light.position.xyz - hitPoint;
         float dist = length(toLight);
         lightDir = toLight / dist;
-        attenuation = 1.0 / (1.0 + 0.1 * dist * dist);
+        attenuation = 1.0 / (1.0 + 0.05 * dist * dist);
       }
 
-      // Shadow test: only first light uses shadow rays in Phase 3
+      // Per-light shadow test: shadow intersections packed as [light0 pixels][light1 pixels]...
       float shadowFactor = 1.0;
-      if (i == 0 && inShadow) {
-        shadowFactor = 0.0;
+      if (camera.shadowsEnabled > 0) {
+        uint shadowIdx = i * pixelCount + rayIndex;
+        Intersection shadowIsect = shadowIntersections[shadowIdx];
+        if (shadowIsect.distance > 0.0) {
+          shadowFactor = 0.0;
+        }
       }
 
       float NdotL = max(dot(faceNormal, lightDir), 0.0);
@@ -499,14 +499,14 @@ bool Metal_RayTracing::Init(Metal_Context* theCtx)
     }
   }
 
-  // Create shadow ray generation pipeline
-  id<MTLFunction> aShadowRayGenFunc = [myShaderLibrary newFunctionWithName:@"shadowRayGen"];
+  // Create shadow ray generation pipeline (per-light)
+  id<MTLFunction> aShadowRayGenFunc = [myShaderLibrary newFunctionWithName:@"shadowRayGenForLight"];
   if (aShadowRayGenFunc != nil)
   {
     myShadowRayGenPipeline = [aDevice newComputePipelineStateWithFunction:aShadowRayGenFunc error:&anError];
     if (myShadowRayGenPipeline == nil)
     {
-      Message::SendFail() << "Metal_RayTracing: shadowRayGen pipeline failed - "
+      Message::SendFail() << "Metal_RayTracing: shadowRayGenForLight pipeline failed - "
                           << [[anError localizedDescription] UTF8String];
       return false;
     }
@@ -710,6 +710,7 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
   }
 
   // Shadow ray buffers (only if shadows enabled and we have lights)
+  // Shadow intersections are packed: [light0 all pixels][light1 all pixels]...
   bool aUseShadows = myShadowsEnabled && myLightCount > 0 && myShadowRayGenPipeline != nil;
   if (aUseShadows)
   {
@@ -719,9 +720,11 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
                                                options:MTLResourceStorageModePrivate];
     }
 
-    if (myShadowIntersectionBuffer == nil || [myShadowIntersectionBuffer length] < aIntersectionBufferSize)
+    // Need space for shadow intersections for ALL lights
+    size_t aShadowIntersectionSize = aIntersectionBufferSize * static_cast<size_t>(myLightCount);
+    if (myShadowIntersectionBuffer == nil || [myShadowIntersectionBuffer length] < aShadowIntersectionSize)
     {
-      myShadowIntersectionBuffer = [aDevice newBufferWithLength:aIntersectionBufferSize
+      myShadowIntersectionBuffer = [aDevice newBufferWithLength:aShadowIntersectionSize
                                                         options:MTLResourceStorageModePrivate];
     }
   }
@@ -772,36 +775,41 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
                                              rayCount:aRayCount
                                 accelerationStructure:myAccelerationStructure];
 
-  // Step 3: Generate and intersect shadow rays (if enabled)
+  // Step 3: Generate and intersect shadow rays for each light
   if (aUseShadows)
   {
-    // 3a: Generate shadow rays from hit points toward first light
+    MTLSize aThreadgroupSize = MTLSizeMake(8, 8, 1);
+    MTLSize aThreadgroups = MTLSizeMake((aWidth + 7) / 8, (aHeight + 7) / 8, 1);
+
+    for (int aLightIdx = 0; aLightIdx < myLightCount; ++aLightIdx)
     {
-      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
-      [anEncoder setComputePipelineState:myShadowRayGenPipeline];
-      [anEncoder setBuffer:myShadowRayBuffer offset:0 atIndex:0];
-      [anEncoder setBuffer:myIntersectionBuffer offset:0 atIndex:1];
-      [anEncoder setBuffer:myRayBuffer offset:0 atIndex:2];
-      [anEncoder setBytes:&aCameraParams length:sizeof(aCameraParams) atIndex:3];
-      [anEncoder setBuffer:myVertexBuffer offset:0 atIndex:4];
-      [anEncoder setBuffer:myIndexBuffer offset:0 atIndex:5];
-      [anEncoder setBuffer:myLightBuffer offset:0 atIndex:6];  // First light
+      // 3a: Generate shadow rays from hit points toward this light
+      {
+        id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+        [anEncoder setComputePipelineState:myShadowRayGenPipeline];
+        [anEncoder setBuffer:myShadowRayBuffer offset:0 atIndex:0];
+        [anEncoder setBuffer:myIntersectionBuffer offset:0 atIndex:1];
+        [anEncoder setBuffer:myRayBuffer offset:0 atIndex:2];
+        [anEncoder setBytes:&aCameraParams length:sizeof(aCameraParams) atIndex:3];
+        [anEncoder setBuffer:myVertexBuffer offset:0 atIndex:4];
+        [anEncoder setBuffer:myIndexBuffer offset:0 atIndex:5];
+        [anEncoder setBuffer:myLightBuffer offset:0 atIndex:6];
+        [anEncoder setBytes:&aLightIdx length:sizeof(aLightIdx) atIndex:7];
+        [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+        [anEncoder endEncoding];
+      }
 
-      MTLSize aThreadgroupSize = MTLSizeMake(8, 8, 1);
-      MTLSize aThreadgroups = MTLSizeMake((aWidth + 7) / 8, (aHeight + 7) / 8, 1);
-      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
-      [anEncoder endEncoding];
+      // 3b: Intersect shadow rays, store at offset for this light
+      size_t aShadowOffset = static_cast<size_t>(aLightIdx) * aIntersectionBufferSize;
+      [myRayIntersector encodeIntersectionToCommandBuffer:theCommandBuffer
+                                         intersectionType:MPSIntersectionTypeAny
+                                                rayBuffer:myShadowRayBuffer
+                                          rayBufferOffset:0
+                                       intersectionBuffer:myShadowIntersectionBuffer
+                                 intersectionBufferOffset:aShadowOffset
+                                                 rayCount:aRayCount
+                                    accelerationStructure:myAccelerationStructure];
     }
-
-    // 3b: Intersect shadow rays with geometry (any hit is enough for shadow)
-    [myRayIntersector encodeIntersectionToCommandBuffer:theCommandBuffer
-                                       intersectionType:MPSIntersectionTypeAny
-                                              rayBuffer:myShadowRayBuffer
-                                        rayBufferOffset:0
-                                     intersectionBuffer:myShadowIntersectionBuffer
-                               intersectionBufferOffset:0
-                                               rayCount:aRayCount
-                                  accelerationStructure:myAccelerationStructure];
   }
 
   // Step 4: Shade intersections
