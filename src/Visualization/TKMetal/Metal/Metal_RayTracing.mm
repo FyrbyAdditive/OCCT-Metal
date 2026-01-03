@@ -153,8 +153,15 @@ kernel void shade(
     RaytraceMaterial mat = materials[matIdx];
     float3 diffuseColor = mat.diffuse.rgb;
 
-    // Accumulate lighting
-    float3 totalLight = mat.ambient.rgb * 0.3;  // Ambient
+    // Flip normal if backface
+    float3 rayDir = normalize(float3(rays[rayIndex].direction));
+    float3 faceNormal = dot(normal, rayDir) < 0.0 ? normal : -normal;
+
+    // Start with emission (self-illumination)
+    float3 totalLight = mat.emission.rgb;
+
+    // Add ambient contribution
+    totalLight += mat.ambient.rgb * 0.2;
 
     for (int i = 0; i < lightCount; ++i) {
       RaytraceLight light = lights[i];
@@ -172,18 +179,24 @@ kernel void shade(
         attenuation = 1.0 / (1.0 + 0.1 * dist * dist);
       }
 
-      float NdotL = max(dot(normal, lightDir), 0.0);
+      float NdotL = max(dot(faceNormal, lightDir), 0.0);
       totalLight += diffuseColor * light.emission.rgb * light.emission.w * NdotL * attenuation;
 
-      // Specular
+      // Specular (Blinn-Phong)
       float3 viewDir = normalize(camera.origin - hitPoint);
       float3 halfDir = normalize(lightDir + viewDir);
-      float NdotH = max(dot(normal, halfDir), 0.0);
-      float spec = pow(NdotH, mat.specular.w);
+      float NdotH = max(dot(faceNormal, halfDir), 0.0);
+      float shininess = max(mat.specular.w, 1.0);
+      float spec = pow(NdotH, shininess);
       totalLight += mat.specular.rgb * light.emission.rgb * spec * attenuation;
     }
 
-    color = float4(totalLight, 1.0);
+    // Apply transparency (alpha from transparency.x, opacity = 1 - transparency.y)
+    float alpha = mat.transparency.x;
+    float opacity = 1.0 - mat.transparency.y;
+
+    // Clamp final color
+    color = float4(clamp(totalLight, 0.0, 1.0), alpha * opacity);
   }
 
   output.write(color, gid);
