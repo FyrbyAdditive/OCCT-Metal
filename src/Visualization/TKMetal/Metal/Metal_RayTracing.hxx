@@ -1,0 +1,199 @@
+// Copyright (c) 2024 OPEN CASCADE SAS
+//
+// This file is part of Open CASCADE Technology software library.
+//
+// This library is free software; you can redistribute it and/or modify it under
+// the terms of the GNU Lesser General Public License version 2.1 as published
+// by the Free Software Foundation, with special exception defined in the file
+// OCCT_LGPL_EXCEPTION.txt. Consult the file LICENSE_LGPL_21.txt included in OCCT
+// distribution for complete text of the license and disclaimer of any warranty.
+//
+// Alternatively, this file may be used under the terms of Open CASCADE
+// commercial license or contractual agreement.
+
+#ifndef Metal_RayTracing_HeaderFile
+#define Metal_RayTracing_HeaderFile
+
+#include <Standard_Transient.hxx>
+#include <Standard_Handle.hxx>
+#include <NCollection_Vec3.hxx>
+#include <NCollection_Vec4.hxx>
+#include <NCollection_Mat4.hxx>
+
+#ifdef __OBJC__
+#import <Metal/Metal.h>
+#import <MetalPerformanceShaders/MetalPerformanceShaders.h>
+#endif
+
+class Metal_Context;
+
+//! Ray tracing material structure (matches OpenGl_RaytraceMaterial layout).
+//! Padded to 16-byte alignment for Metal buffer access.
+struct Metal_RaytraceMaterial
+{
+  NCollection_Vec4<float> Ambient;      //!< RGB + padding
+  NCollection_Vec4<float> Diffuse;      //!< RGB + texture ID
+  NCollection_Vec4<float> Specular;     //!< RGB + shininess
+  NCollection_Vec4<float> Emission;     //!< RGB + padding
+  NCollection_Vec4<float> Reflection;   //!< Reflection coefficient
+  NCollection_Vec4<float> Refraction;   //!< Refraction coefficient
+  NCollection_Vec4<float> Transparency; //!< Alpha, transparency, IOR, 1/IOR
+};
+
+//! Ray tracing light source structure.
+struct Metal_RaytraceLight
+{
+  NCollection_Vec4<float> Emission;  //!< Light color/intensity
+  NCollection_Vec4<float> Position;  //!< XYZ position, W = type (0=directional, 1=point)
+};
+
+//! Triangle structure for ray tracing geometry.
+struct Metal_RaytraceTriangle
+{
+  uint32_t Indices[3];   //!< Vertex indices
+  uint32_t MaterialId;   //!< Material index
+};
+
+//! Metal ray tracing acceleration structure and pipeline manager.
+//! Uses Metal Performance Shaders (MPS) for hardware-accelerated ray tracing
+//! on Apple GPUs with ray tracing support.
+class Metal_RayTracing : public Standard_Transient
+{
+  DEFINE_STANDARD_RTTIEXT(Metal_RayTracing, Standard_Transient)
+
+public:
+
+  //! Create empty ray tracing manager.
+  Standard_EXPORT Metal_RayTracing();
+
+  //! Destructor.
+  Standard_EXPORT ~Metal_RayTracing();
+
+  //! Check if ray tracing is supported on this device.
+  Standard_EXPORT static bool IsSupported(Metal_Context* theCtx);
+
+  //! Initialize ray tracing resources.
+  //! @param theCtx Metal context
+  //! @return true on success
+  Standard_EXPORT bool Init(Metal_Context* theCtx);
+
+  //! Release Metal resources.
+  Standard_EXPORT void Release(Metal_Context* theCtx);
+
+  //! Return true if ray tracing is initialized.
+  bool IsValid() const { return myIsValid; }
+
+  //! Build acceleration structure from triangle geometry.
+  //! @param theCtx Metal context
+  //! @param theVertices vertex positions (3 floats per vertex)
+  //! @param theVertexCount number of vertices
+  //! @param theIndices triangle indices (3 per triangle)
+  //! @param theTriangleCount number of triangles
+  //! @return true on success
+  Standard_EXPORT bool BuildAccelerationStructure(
+    Metal_Context* theCtx,
+    const float* theVertices,
+    int theVertexCount,
+    const uint32_t* theIndices,
+    int theTriangleCount);
+
+  //! Set materials for ray tracing.
+  //! @param theCtx Metal context
+  //! @param theMaterials array of materials
+  //! @param theMaterialCount number of materials
+  Standard_EXPORT void SetMaterials(Metal_Context* theCtx,
+                                    const Metal_RaytraceMaterial* theMaterials,
+                                    int theMaterialCount);
+
+  //! Set lights for ray tracing.
+  //! @param theCtx Metal context
+  //! @param theLights array of lights
+  //! @param theLightCount number of lights
+  Standard_EXPORT void SetLights(Metal_Context* theCtx,
+                                 const Metal_RaytraceLight* theLights,
+                                 int theLightCount);
+
+  //! Perform ray tracing to an output texture.
+  //! @param theCtx Metal context
+  //! @param theCommandBuffer command buffer
+  //! @param theOutputTexture target texture for ray traced image
+  //! @param theCameraOrigin camera position
+  //! @param theCameraLookAt camera target
+  //! @param theCameraUp camera up vector
+  //! @param theFov field of view in radians
+#ifdef __OBJC__
+  Standard_EXPORT void Trace(Metal_Context* theCtx,
+                             id<MTLCommandBuffer> theCommandBuffer,
+                             id<MTLTexture> theOutputTexture,
+                             const NCollection_Vec3<float>& theCameraOrigin,
+                             const NCollection_Vec3<float>& theCameraLookAt,
+                             const NCollection_Vec3<float>& theCameraUp,
+                             float theFov);
+#endif
+
+  //! Set maximum ray bounces.
+  void SetMaxBounces(int theBounces) { myMaxBounces = theBounces; }
+
+  //! Return maximum ray bounces.
+  int MaxBounces() const { return myMaxBounces; }
+
+  //! Set shadows enabled.
+  void SetShadowsEnabled(bool theEnabled) { myShadowsEnabled = theEnabled; }
+
+  //! Return true if shadows are enabled.
+  bool IsShadowsEnabled() const { return myShadowsEnabled; }
+
+  //! Set reflections enabled.
+  void SetReflectionsEnabled(bool theEnabled) { myReflectionsEnabled = theEnabled; }
+
+  //! Return true if reflections are enabled.
+  bool IsReflectionsEnabled() const { return myReflectionsEnabled; }
+
+private:
+
+#ifdef __OBJC__
+  // Acceleration structure (MPS ray tracing)
+  MPSTriangleAccelerationStructure* myAccelerationStructure;
+  MPSRayIntersector* myRayIntersector;
+
+  // Compute pipeline for ray generation and shading
+  id<MTLComputePipelineState> myRayGenPipeline;
+  id<MTLComputePipelineState> myShadePipeline;
+
+  // Buffers
+  id<MTLBuffer> myVertexBuffer;
+  id<MTLBuffer> myIndexBuffer;
+  id<MTLBuffer> myMaterialBuffer;
+  id<MTLBuffer> myLightBuffer;
+  id<MTLBuffer> myRayBuffer;
+  id<MTLBuffer> myIntersectionBuffer;
+
+  // Shader library
+  id<MTLLibrary> myShaderLibrary;
+#else
+  void* myAccelerationStructure;
+  void* myRayIntersector;
+  void* myRayGenPipeline;
+  void* myShadePipeline;
+  void* myVertexBuffer;
+  void* myIndexBuffer;
+  void* myMaterialBuffer;
+  void* myLightBuffer;
+  void* myRayBuffer;
+  void* myIntersectionBuffer;
+  void* myShaderLibrary;
+#endif
+
+  int  myVertexCount;
+  int  myTriangleCount;
+  int  myMaterialCount;
+  int  myLightCount;
+  int  myMaxBounces;
+  bool myShadowsEnabled;
+  bool myReflectionsEnabled;
+  bool myIsValid;
+};
+
+DEFINE_STANDARD_HANDLE(Metal_RayTracing, Standard_Transient)
+
+#endif // Metal_RayTracing_HeaderFile

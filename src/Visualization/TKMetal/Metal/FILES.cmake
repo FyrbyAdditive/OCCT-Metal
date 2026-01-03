@@ -30,6 +30,8 @@ set(OCCT_Metal_FILES
   Metal_InstanceBuffer.mm
   Metal_PrimitiveArray.hxx
   Metal_PrimitiveArray.mm
+  Metal_RayTracing.hxx
+  Metal_RayTracing.mm
   Metal_RenderFilter.hxx
   Metal_Resource.hxx
   Metal_Resource.mm
