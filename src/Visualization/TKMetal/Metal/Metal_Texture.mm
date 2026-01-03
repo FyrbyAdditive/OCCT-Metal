@@ -521,6 +521,62 @@ bool Metal_Texture::Upload(Metal_Context* theCtx,
 }
 
 // =======================================================================
+// function : Upload (with offset)
+// purpose  : Upload image data to a sub-region of texture
+// =======================================================================
+bool Metal_Texture::Upload(Metal_Context* theCtx,
+                           const Image_PixMap& theImage,
+                           int theMipLevel,
+                           int theArrayLayer,
+                           int theCubeFace,
+                           int theOffsetX,
+                           int theOffsetY)
+{
+  (void)theCtx;
+
+  if (myTexture == nil || theImage.IsEmpty())
+  {
+    return false;
+  }
+
+  int aBytesPerPixel = BytesPerPixel(myPixelFormat);
+  NSUInteger aBytesPerRow = theImage.Width() * aBytesPerPixel;
+
+  const void* aData = theImage.Data();
+
+  MTLRegion aRegion = MTLRegionMake2D(theOffsetX, theOffsetY,
+                                       theImage.Width(), theImage.Height());
+
+  if (myTextureType == Metal_TextureType_Cube)
+  {
+    [myTexture replaceRegion:aRegion
+                 mipmapLevel:theMipLevel
+                       slice:theCubeFace
+                   withBytes:aData
+                 bytesPerRow:aBytesPerRow
+               bytesPerImage:0];
+  }
+  else if (myArrayLayers > 1)
+  {
+    [myTexture replaceRegion:aRegion
+                 mipmapLevel:theMipLevel
+                       slice:theArrayLayer
+                   withBytes:aData
+                 bytesPerRow:aBytesPerRow
+               bytesPerImage:0];
+  }
+  else
+  {
+    [myTexture replaceRegion:aRegion
+                 mipmapLevel:theMipLevel
+                   withBytes:aData
+                 bytesPerRow:aBytesPerRow];
+  }
+
+  return true;
+}
+
+// =======================================================================
 // function : GenerateMipmaps
 // purpose  : Generate mipmaps
 // =======================================================================

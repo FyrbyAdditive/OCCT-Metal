@@ -16,6 +16,8 @@ set(OCCT_Metal_FILES
   Metal_ComputePipeline.mm
   Metal_Context.hxx
   Metal_Context.mm
+  Metal_Font.hxx
+  Metal_Font.mm
   Metal_FrameBuffer.hxx
   Metal_FrameBuffer.mm
   Metal_GraphicDriver.hxx

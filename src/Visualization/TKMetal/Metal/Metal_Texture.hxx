@@ -157,6 +157,23 @@ public:
                               int theArrayLayer = 0,
                               int theCubeFace = 0);
 
+  //! Upload image data to a sub-region of existing texture.
+  //! @param theCtx Metal context
+  //! @param theImage source image
+  //! @param theMipLevel mip level to update (0 = base)
+  //! @param theArrayLayer array layer (for array textures)
+  //! @param theCubeFace cube face (for cube textures, 0-5)
+  //! @param theOffsetX X offset in texture
+  //! @param theOffsetY Y offset in texture
+  //! @return true on success
+  Standard_EXPORT bool Upload(Metal_Context* theCtx,
+                              const Image_PixMap& theImage,
+                              int theMipLevel,
+                              int theArrayLayer,
+                              int theCubeFace,
+                              int theOffsetX,
+                              int theOffsetY);
+
   //! Generate mipmaps for texture.
   //! @param theCtx Metal context
   Standard_EXPORT void GenerateMipmaps(Metal_Context* theCtx);
