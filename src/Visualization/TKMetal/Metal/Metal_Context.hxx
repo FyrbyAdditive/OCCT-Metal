@@ -267,11 +267,17 @@ public: //! @name Render state management
   //! Enable or disable color writing.
   Standard_EXPORT void SetColorMask(bool theValue);
 
-  //! Clear depth buffer.
+  //! Set depth clear value (used when creating render pass descriptor).
   Standard_EXPORT void ClearDepth();
 
-  //! Clear color buffer with specified color.
+  //! Set color clear value (used when creating render pass descriptor).
   Standard_EXPORT void ClearColor(float theR, float theG, float theB, float theA);
+
+  //! Return current clear color values.
+  const float* ClearColorValues() const { return myClearColor; }
+
+  //! Return current clear depth value.
+  float ClearDepthValue() const { return myClearDepth; }
 
   //! Bind shader program (nullptr to unbind).
   Standard_EXPORT void BindProgram(void* theProgram);
@@ -398,6 +404,8 @@ private:
   int                     myBlendDstAlpha;        //!< Blend destination alpha factor
   bool                    myColorMask;            //!< Color write mask
   int                     myViewport[4];          //!< Current viewport (x, y, width, height)
+  float                   myClearColor[4];        //!< Clear color (RGBA) for render pass
+  float                   myClearDepth;           //!< Clear depth value for render pass
 
   occ::handle<Graphic3d_Camera> myCamera;         //!< Current camera
   class Metal_ShaderManager* myShaderManager;     //!< Shader manager

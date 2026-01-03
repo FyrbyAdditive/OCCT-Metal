@@ -73,6 +73,11 @@ Metal_Context::Metal_Context(const occ::handle<Metal_Caps>& theCaps)
   myViewport[1] = 0;
   myViewport[2] = 0;
   myViewport[3] = 0;
+  myClearColor[0] = 0.0f;
+  myClearColor[1] = 0.0f;
+  myClearColor[2] = 0.0f;
+  myClearColor[3] = 1.0f;
+  myClearDepth = 1.0f;
 
   if (myCaps.IsNull())
   {
@@ -1218,23 +1223,29 @@ void Metal_Context::SetColorMask(bool theValue)
 
 // =======================================================================
 // function : ClearDepth
-// purpose  : Clear depth buffer
+// purpose  : Set depth clear value (used when creating render pass descriptor)
 // =======================================================================
 void Metal_Context::ClearDepth()
 {
-  // In Metal, depth clearing is typically done via render pass descriptor
-  // This method is a placeholder for tracking state
+  // In Metal, depth clearing is done via render pass descriptor loadAction.
+  // This method tracks the clear depth value (default 1.0).
+  // The value is used by Metal_FrameBuffer::CreateRenderPassDescriptor().
+  myClearDepth = 1.0f;
 }
 
 // =======================================================================
 // function : ClearColor
-// purpose  : Clear color buffer
+// purpose  : Set color clear value (used when creating render pass descriptor)
 // =======================================================================
 void Metal_Context::ClearColor(float theR, float theG, float theB, float theA)
 {
-  // In Metal, color clearing is typically done via render pass descriptor
-  // This method is a placeholder for tracking state
-  (void)theR; (void)theG; (void)theB; (void)theA;
+  // In Metal, color clearing is done via render pass descriptor loadAction.
+  // This method tracks the clear color values.
+  // The values are used by Metal_FrameBuffer::CreateRenderPassDescriptor().
+  myClearColor[0] = theR;
+  myClearColor[1] = theG;
+  myClearColor[2] = theB;
+  myClearColor[3] = theA;
 }
 
 // =======================================================================
