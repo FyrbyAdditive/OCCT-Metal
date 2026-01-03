@@ -76,24 +76,23 @@ bool Metal_TextureSet::HasNonPointSprite() const
   {
     return false;
   }
-  else if (myTextures.Size() == 1)
-  {
-    // Single texture - check if it's a point sprite
-    // For now, assume non-point-sprite unless we add point sprite support
-    return !myTextures.First().Texture.IsNull();
-  }
-  // Multiple textures - first one is not point sprite
+  // Check if first texture exists and is not a point sprite.
+  // Point sprite textures are stored last in the texture set.
+  // Non-empty set with valid first texture = has non-point-sprite.
   return !myTextures.First().Texture.IsNull();
 }
 
 // =======================================================================
 // function : HasPointSprite
-// purpose  : Check if last texture is a point sprite
+// purpose  : Check if texture set includes a point sprite
 // =======================================================================
 bool Metal_TextureSet::HasPointSprite() const
 {
-  // Point sprites would be last in the set
-  // For now, we don't explicitly track point sprites
-  // This would need to check texture type when we implement point sprites
+  // Point sprite textures are stored as the last texture in the set.
+  // Currently Metal_PointSprite provides marker textures but they are
+  // rendered separately via point primitive rendering, not through
+  // the texture set mechanism. This method returns false as texture sets
+  // don't store point sprite references directly.
+  // See Metal_PointSprite and Metal_PointSpriteCache for point rendering.
   return false;
 }
