@@ -39,3 +39,16 @@ Metal_FrameStats::~Metal_FrameStats()
 {
   //
 }
+
+// =======================================================================
+// function : updateStatistics
+// purpose  : Collect statistics from the view
+// =======================================================================
+void Metal_FrameStats::updateStatistics(const occ::handle<Graphic3d_CView>& theView,
+                                         bool theIsImmediateOnly)
+{
+  (void)theView;
+  (void)theIsImmediateOnly;
+  // Metal-specific statistics collection would go here
+  // For now, statistics are updated manually via AddDrawCall(), SetGpuMemory(), etc.
+}

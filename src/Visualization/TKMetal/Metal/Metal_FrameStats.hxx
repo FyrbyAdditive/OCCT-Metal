@@ -92,6 +92,12 @@ public: //! @name Draw call statistics
     myPointsCount += thePoints;
   }
 
+protected: //! @name Virtual methods
+
+  //! Method to collect statistics from the View; called by FrameEnd().
+  Standard_EXPORT void updateStatistics(const occ::handle<Graphic3d_CView>& theView,
+                                         bool theIsImmediateOnly) override;
+
 public: //! @name Timing
 
   //! Start CPU timer.
