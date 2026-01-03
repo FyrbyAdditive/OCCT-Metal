@@ -207,6 +207,13 @@ public:
   //! Return current frame index for path tracing accumulation.
   uint32_t FrameIndex() const { return myFrameIndex; }
 
+  //! Set BSDF sampling enabled for physically-based materials (Phase 10).
+  //! When enabled, uses Cook-Torrance GGX microfacet BRDF.
+  void SetBSDFSamplingEnabled(bool theEnabled) { myBSDFSamplingEnabled = theEnabled; }
+
+  //! Return true if BSDF sampling is enabled.
+  bool IsBSDFSamplingEnabled() const { return myBSDFSamplingEnabled; }
+
 private:
 
 #ifdef __OBJC__
@@ -228,6 +235,7 @@ private:
   id<MTLComputePipelineState> myShadeWithTexturesPipeline; //!< Phase 8: Full shading with textures
   id<MTLComputePipelineState> myPathTraceRayGenPipeline;   //!< Phase 9: Path tracing ray generation with jitter
   id<MTLComputePipelineState> myPathTracePipeline;         //!< Phase 9: Path tracing kernel
+  id<MTLComputePipelineState> myPathTraceBSDFPipeline;     //!< Phase 10: Path tracing with GGX BSDF
   id<MTLComputePipelineState> myAccumulatePipeline;        //!< Phase 9: Accumulation kernel
 
   // Buffers
@@ -277,6 +285,7 @@ private:
   void* myShadeWithTexturesPipeline;
   void* myPathTraceRayGenPipeline;
   void* myPathTracePipeline;
+  void* myPathTraceBSDFPipeline;
   void* myAccumulatePipeline;
   void* myVertexBuffer;
   void* myIndexBuffer;
@@ -314,6 +323,7 @@ private:
   bool myRefractionsEnabled;
   bool myTexturingEnabled;
   bool myPathTracingEnabled;
+  bool myBSDFSamplingEnabled;      //!< Phase 10: Use Cook-Torrance GGX BSDF
   bool myIsValid;
   uint32_t myFrameIndex;           //!< Phase 9: Current frame for accumulation
 };

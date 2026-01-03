@@ -1053,6 +1053,114 @@ inline float3 sample_cosine_hemisphere(float2 u, float3 normal) {
     return tangent * x + bitangent * y + normal * z;
 }
 
+// ==========================================================================
+// Phase 10: BSDF Functions - GGX Microfacet Model
+// ==========================================================================
+
+// Fresnel-Schlick approximation
+inline float3 fresnelSchlickBSDF(float cosTheta, float3 F0) {
+    return F0 + (1.0f - F0) * pow(saturate(1.0f - cosTheta), 5.0f);
+}
+
+// GGX Normal Distribution Function (Trowbridge-Reitz)
+inline float distributionGGX(float3 N, float3 H, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0f);
+    float NdotH2 = NdotH * NdotH;
+
+    float denom = NdotH2 * (a2 - 1.0f) + 1.0f;
+    denom = M_PI_F * denom * denom;
+
+    return a2 / max(denom, 0.0001f);
+}
+
+// GGX Geometry function (Smith's method with Schlick approximation)
+inline float geometrySchlickGGX(float NdotV, float roughness) {
+    float r = roughness + 1.0f;
+    float k = (r * r) / 8.0f;
+    return NdotV / (NdotV * (1.0f - k) + k);
+}
+
+inline float geometrySmith(float3 N, float3 V, float3 L, float roughness) {
+    float NdotV = max(dot(N, V), 0.0f);
+    float NdotL = max(dot(N, L), 0.0f);
+    float ggx1 = geometrySchlickGGX(NdotV, roughness);
+    float ggx2 = geometrySchlickGGX(NdotL, roughness);
+    return ggx1 * ggx2;
+}
+
+// GGX importance sampling - returns half vector H
+inline float3 sampleGGX(float2 u, float3 N, float roughness) {
+    float a = roughness * roughness;
+
+    float phi = 2.0f * M_PI_F * u.x;
+    float cosTheta = sqrt((1.0f - u.y) / (1.0f + (a * a - 1.0f) * u.y));
+    float sinTheta = sqrt(1.0f - cosTheta * cosTheta);
+
+    // Spherical to Cartesian (in tangent space)
+    float3 H;
+    H.x = sinTheta * cos(phi);
+    H.y = sinTheta * sin(phi);
+    H.z = cosTheta;
+
+    // Build orthonormal basis
+    float3 up = abs(N.y) < 0.999f ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.0f, 0.0f);
+    float3 tangent = normalize(cross(up, N));
+    float3 bitangent = cross(N, tangent);
+
+    // Transform to world space
+    return normalize(tangent * H.x + bitangent * H.y + N * H.z);
+}
+
+// PDF for cosine-weighted hemisphere sampling
+inline float pdfCosineHemisphere(float NdotL) {
+    return max(NdotL, 0.0001f) / M_PI_F;
+}
+
+// PDF for GGX sampling
+inline float pdfGGX(float3 N, float3 H, float3 V, float roughness) {
+    float D = distributionGGX(N, H, roughness);
+    float NdotH = max(dot(N, H), 0.0f);
+    float VdotH = max(dot(V, H), 0.0f);
+    return D * NdotH / (4.0f * VdotH + 0.0001f);
+}
+
+// Power heuristic for MIS (beta = 2)
+inline float powerHeuristic(float nf, float fPdf, float ng, float gPdf) {
+    float f = nf * fPdf;
+    float g = ng * gPdf;
+    return (f * f) / (f * f + g * g + 0.0001f);
+}
+
+// Evaluate Cook-Torrance BRDF
+inline float3 evaluateCookTorranceBRDF(
+    float3 N, float3 V, float3 L,
+    float3 albedo, float metallic, float roughness)
+{
+    float3 H = normalize(V + L);
+    float NdotL = max(dot(N, L), 0.0f);
+    float NdotV = max(dot(N, V), 0.0f);
+
+    if (NdotL <= 0.0f || NdotV <= 0.0f) return float3(0.0f);
+
+    // F0 for dielectrics is 0.04, for metals use albedo
+    float3 F0 = mix(float3(0.04f), albedo, metallic);
+
+    // Cook-Torrance specular BRDF
+    float D = distributionGGX(N, H, roughness);
+    float G = geometrySmith(N, V, L, roughness);
+    float3 F = fresnelSchlickBSDF(max(dot(H, V), 0.0f), F0);
+
+    float3 specular = (D * G * F) / (4.0f * NdotV * NdotL + 0.0001f);
+
+    // Diffuse component (only for non-metals, energy conserving)
+    float3 kD = (1.0f - F) * (1.0f - metallic);
+    float3 diffuse = kD * albedo / M_PI_F;
+
+    return (diffuse + specular) * NdotL;
+}
+
 // Phase 9: Camera parameters extended with frame index for accumulation
 struct PathTraceCameraParams {
     float3 origin;
@@ -1214,6 +1322,143 @@ kernel void pathTrace(
     float3 accumulatedColor = prevColor * (1.0f - weight) + radiance * weight;
 
     // Write to output with gamma correction
+    float3 displayColor = pow(accumulatedColor, float3(1.0f / 2.2f));
+    output.write(float4(saturate(displayColor), 1.0f), tid);
+}
+
+// Phase 10: Path tracing with physically-based BSDF sampling (Cook-Torrance GGX)
+kernel void pathTraceBSDF(
+    texture2d<float, access::read_write> output [[texture(0)]],
+    device const Intersection* intersections [[buffer(0)]],
+    device const Ray* rays [[buffer(1)]],
+    constant PathTraceCameraParams& camera [[buffer(2)]],
+    constant float3* vertices [[buffer(3)]],
+    constant uint* indices [[buffer(4)]],
+    constant RaytraceMaterial* materials [[buffer(5)]],
+    constant int* materialIndices [[buffer(6)]],
+    constant RaytraceLight* lights [[buffer(7)]],
+    device uint* rngSeeds [[buffer(8)]],
+    uint2 tid [[thread_position_in_grid]])
+{
+    if (tid.x >= uint(camera.resolution.x) || tid.y >= uint(camera.resolution.y)) return;
+
+    uint idx = tid.y * uint(camera.resolution.x) + tid.x;
+    Intersection isect = intersections[idx];
+
+    // Get RNG state
+    uint seed = rngSeeds[idx];
+
+    float3 radiance = float3(0.0f);
+    float3 throughput = float3(1.0f);
+
+    // Current ray direction
+    float3 rayDir = normalize(float3(rays[idx].direction));
+
+    if (isect.distance < 0.0f) {
+        // Miss - sky color
+        float t = 0.5f * (rayDir.y + 1.0f);
+        radiance = throughput * mix(float3(0.5f, 0.7f, 1.0f), float3(0.8f, 0.9f, 1.0f), t) * 0.3f;
+    }
+    else {
+        // Get hit information
+        uint triIdx = uint(isect.primitiveIndex);
+        uint i0 = indices[triIdx * 3 + 0];
+        uint i1 = indices[triIdx * 3 + 1];
+        uint i2 = indices[triIdx * 3 + 2];
+
+        float3 v0 = vertices[i0];
+        float3 v1 = vertices[i1];
+        float3 v2 = vertices[i2];
+
+        float2 bary = isect.coordinates;
+        float3 hitPoint = v0 * (1.0f - bary.x - bary.y) + v1 * bary.x + v2 * bary.y;
+
+        float3 edge1 = v1 - v0;
+        float3 edge2 = v2 - v0;
+        float3 N = normalize(cross(edge1, edge2));
+
+        // Flip normal if backface
+        if (dot(N, rayDir) > 0.0f) {
+            N = -N;
+        }
+
+        // Get material - extract PBR parameters
+        int matIdx = materialIndices[triIdx];
+        RaytraceMaterial mat = materials[matIdx];
+        float3 albedo = mat.diffuse.rgb;
+        // Use specular.w as roughness (repurposed from shininess)
+        float roughness = clamp(mat.specular.w, 0.04f, 1.0f);
+        // Use reflection.w as metallic factor
+        float metallic = clamp(mat.reflection.w, 0.0f, 1.0f);
+
+        // View direction (towards camera)
+        float3 V = -rayDir;
+
+        // Add emission
+        radiance += throughput * mat.emission.rgb;
+
+        // Direct lighting with Cook-Torrance BRDF
+        for (int l = 0; l < camera.lightCount; l++) {
+            RaytraceLight light = lights[l];
+            float3 lightDir;
+            float3 lightIntensity = light.emission.rgb * light.emission.w;
+
+            if (light.position.w < 0.5f) {
+                // Directional light
+                lightDir = normalize(-light.position.xyz);
+            } else {
+                // Point light
+                float3 toLight = light.position.xyz - hitPoint;
+                float lightDist = length(toLight);
+                lightDir = toLight / lightDist;
+                float attenuation = 1.0f / (1.0f + 0.05f * lightDist * lightDist);
+                lightIntensity *= attenuation;
+            }
+
+            // Evaluate Cook-Torrance BRDF
+            float3 brdf = evaluateCookTorranceBRDF(N, V, lightDir, albedo, metallic, roughness);
+            radiance += throughput * brdf * lightIntensity;
+        }
+
+        // Sample BSDF for indirect contribution visualization
+        float2 u = random_float2(seed);
+        float3 sampleDir;
+        float pdf;
+
+        // Choose between diffuse and specular sampling based on metallic
+        if (random_float(seed) > metallic) {
+            // Sample diffuse (cosine-weighted)
+            sampleDir = sample_cosine_hemisphere(u, N);
+            pdf = pdfCosineHemisphere(max(dot(N, sampleDir), 0.0f));
+        } else {
+            // Sample GGX for specular
+            float3 H = sampleGGX(u, N, roughness);
+            sampleDir = reflect(-V, H);
+            pdf = pdfGGX(N, H, V, roughness);
+        }
+
+        // Add subtle ambient contribution based on BSDF sample
+        float NdotL = max(dot(N, sampleDir), 0.0f);
+        if (NdotL > 0.0f && pdf > 0.0001f) {
+            float3 brdf = evaluateCookTorranceBRDF(N, V, sampleDir, albedo, metallic, roughness);
+            radiance += throughput * brdf * 0.2f / pdf;
+        }
+    }
+
+    // Save RNG state
+    rngSeeds[idx] = seed;
+
+    // Progressive accumulation
+    float3 prevColor = float3(0.0f);
+    if (camera.frameIndex > 0) {
+        float4 prev = output.read(tid);
+        prevColor = pow(prev.rgb, float3(2.2f));
+    }
+
+    float weight = 1.0f / float(camera.frameIndex + 1);
+    float3 accumulatedColor = prevColor * (1.0f - weight) + radiance * weight;
+
+    // Gamma correction
     float3 displayColor = pow(accumulatedColor, float3(1.0f / 2.2f));
     output.write(float4(saturate(displayColor), 1.0f), tid);
 }
@@ -1422,6 +1667,7 @@ Metal_RayTracing::Metal_RayTracing()
   myShadeWithTexturesPipeline(nil),
   myPathTraceRayGenPipeline(nil),
   myPathTracePipeline(nil),
+  myPathTraceBSDFPipeline(nil),
   myAccumulatePipeline(nil),
   myAccumulationBuffer(nil),
   myRandomSeedBuffer(nil),
@@ -1435,6 +1681,7 @@ Metal_RayTracing::Metal_RayTracing()
   myRefractionsEnabled(true),
   myTexturingEnabled(false),
   myPathTracingEnabled(false),
+  myBSDFSamplingEnabled(false),
   myIsValid(false),
   myFrameIndex(0)
 {
@@ -1686,6 +1933,19 @@ bool Metal_RayTracing::Init(Metal_Context* theCtx)
     }
   }
 
+  // Phase 10: Create BSDF path tracing kernel pipeline
+  id<MTLFunction> aPathTraceBSDFFunc = [myShaderLibrary newFunctionWithName:@"pathTraceBSDF"];
+  if (aPathTraceBSDFFunc != nil)
+  {
+    myPathTraceBSDFPipeline = [aDevice newComputePipelineStateWithFunction:aPathTraceBSDFFunc error:&anError];
+    if (myPathTraceBSDFPipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: pathTraceBSDF pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
   // Create ray intersector
   myRayIntersector = [[MPSRayIntersector alloc] initWithDevice:aDevice];
   myRayIntersector.rayDataType = MPSRayDataTypeOriginMinDistanceDirectionMaxDistance;
@@ -1719,6 +1979,7 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myShadeWithTexturesPipeline = nil;
   myPathTraceRayGenPipeline = nil;
   myPathTracePipeline = nil;
+  myPathTraceBSDFPipeline = nil;
   myAccumulatePipeline = nil;
   myVertexBuffer = nil;
   myIndexBuffer = nil;
@@ -2148,9 +2409,17 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
                                   accelerationStructure:myAccelerationStructure];
 
     // Step 3: Path trace shading with progressive accumulation
+    // Use BSDF pipeline (Phase 10) if enabled, otherwise basic path tracing (Phase 9)
     {
       id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
-      [anEncoder setComputePipelineState:myPathTracePipeline];
+      if (myBSDFSamplingEnabled && myPathTraceBSDFPipeline != nil)
+      {
+        [anEncoder setComputePipelineState:myPathTraceBSDFPipeline];
+      }
+      else
+      {
+        [anEncoder setComputePipelineState:myPathTracePipeline];
+      }
       [anEncoder setTexture:theOutputTexture atIndex:0];
       [anEncoder setBuffer:myIntersectionBuffer offset:0 atIndex:0];
       [anEncoder setBuffer:myRayBuffer offset:0 atIndex:1];
