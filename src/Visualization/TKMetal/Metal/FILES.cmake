@@ -25,6 +25,8 @@ set(OCCT_Metal_FILES
   Metal_FrameBuffer.mm
   Metal_FrameStats.hxx
   Metal_FrameStats.mm
+  Metal_GraduatedTrihedron.hxx
+  Metal_GraduatedTrihedron.mm
   Metal_GraphicDriver.hxx
   Metal_GraphicDriver.mm
   Metal_GraphicDriverFactory.hxx
