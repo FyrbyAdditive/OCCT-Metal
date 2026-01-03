@@ -147,7 +147,11 @@ kernel void shade(
     // Hit point
     float3 hitPoint = rays[rayIndex].origin + isect.distance * rays[rayIndex].direction;
 
-    // Simple material (use first material for now)
+    // Material lookup: currently uses first material for all triangles.
+    // Multi-material support requires a per-triangle material index buffer
+    // mapping primitiveIndex -> materialIndex, which can be added to the
+    // acceleration structure build process in Metal_RayTracing::BuildBVH().
+    // For now, all geometry shares the same material properties.
     RaytraceMaterial mat = materials[0];
     float3 diffuseColor = mat.diffuse.rgb;
 
