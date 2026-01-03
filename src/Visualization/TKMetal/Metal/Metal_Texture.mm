@@ -16,6 +16,8 @@
 #include <Metal_Texture.hxx>
 #include <Metal_Context.hxx>
 #include <Standard_Assert.hxx>
+#include <vector>
+#include <cstring>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_Texture, Metal_Resource)
 
@@ -199,6 +201,138 @@ int Metal_Texture::CompressedBytesPerBlock(int theMetalFormat)
       return 16; // 16 bytes per 4x4 block
     default:
       return 0;
+  }
+}
+
+// =======================================================================
+// function : NeedsFormatConversion
+// purpose  : Check if image format requires conversion
+// =======================================================================
+bool Metal_Texture::NeedsFormatConversion(Image_Format theFormat)
+{
+  switch (theFormat)
+  {
+    case Image_Format_RGB:
+    case Image_Format_BGR:
+    case Image_Format_RGBF:
+    case Image_Format_BGRF:
+      return true;
+    default:
+      return false;
+  }
+}
+
+// =======================================================================
+// function : ConvertImageFormat
+// purpose  : Convert image data to Metal-compatible format
+// =======================================================================
+void Metal_Texture::ConvertImageFormat(const void* theSrc,
+                                        void* theDst,
+                                        int theWidth,
+                                        int theHeight,
+                                        size_t theSrcRowBytes,
+                                        Image_Format theSrcFormat,
+                                        int theDstBytesPerPixel)
+{
+  const uint8_t* aSrcRow = static_cast<const uint8_t*>(theSrc);
+  uint8_t* aDstRow = static_cast<uint8_t*>(theDst);
+  const size_t aDstRowBytes = theWidth * theDstBytesPerPixel;
+
+  switch (theSrcFormat)
+  {
+    case Image_Format_RGB:
+    {
+      // RGB (3 bytes) -> RGBA (4 bytes)
+      for (int y = 0; y < theHeight; ++y)
+      {
+        const uint8_t* aSrc = aSrcRow;
+        uint8_t* aDst = aDstRow;
+        for (int x = 0; x < theWidth; ++x)
+        {
+          aDst[0] = aSrc[0];  // R
+          aDst[1] = aSrc[1];  // G
+          aDst[2] = aSrc[2];  // B
+          aDst[3] = 255;      // A
+          aSrc += 3;
+          aDst += 4;
+        }
+        aSrcRow += theSrcRowBytes;
+        aDstRow += aDstRowBytes;
+      }
+      break;
+    }
+    case Image_Format_BGR:
+    {
+      // BGR (3 bytes) -> RGBA (4 bytes, swapped)
+      for (int y = 0; y < theHeight; ++y)
+      {
+        const uint8_t* aSrc = aSrcRow;
+        uint8_t* aDst = aDstRow;
+        for (int x = 0; x < theWidth; ++x)
+        {
+          aDst[0] = aSrc[2];  // R (from B position)
+          aDst[1] = aSrc[1];  // G
+          aDst[2] = aSrc[0];  // B (from R position)
+          aDst[3] = 255;      // A
+          aSrc += 3;
+          aDst += 4;
+        }
+        aSrcRow += theSrcRowBytes;
+        aDstRow += aDstRowBytes;
+      }
+      break;
+    }
+    case Image_Format_RGBF:
+    {
+      // RGBF (3 floats = 12 bytes) -> RGBAF (4 floats = 16 bytes)
+      for (int y = 0; y < theHeight; ++y)
+      {
+        const float* aSrc = reinterpret_cast<const float*>(aSrcRow);
+        float* aDst = reinterpret_cast<float*>(aDstRow);
+        for (int x = 0; x < theWidth; ++x)
+        {
+          aDst[0] = aSrc[0];  // R
+          aDst[1] = aSrc[1];  // G
+          aDst[2] = aSrc[2];  // B
+          aDst[3] = 1.0f;     // A
+          aSrc += 3;
+          aDst += 4;
+        }
+        aSrcRow += theSrcRowBytes;
+        aDstRow += aDstRowBytes;
+      }
+      break;
+    }
+    case Image_Format_BGRF:
+    {
+      // BGRF (3 floats = 12 bytes) -> RGBAF (4 floats = 16 bytes, swapped)
+      for (int y = 0; y < theHeight; ++y)
+      {
+        const float* aSrc = reinterpret_cast<const float*>(aSrcRow);
+        float* aDst = reinterpret_cast<float*>(aDstRow);
+        for (int x = 0; x < theWidth; ++x)
+        {
+          aDst[0] = aSrc[2];  // R (from B position)
+          aDst[1] = aSrc[1];  // G
+          aDst[2] = aSrc[0];  // B (from R position)
+          aDst[3] = 1.0f;     // A
+          aSrc += 3;
+          aDst += 4;
+        }
+        aSrcRow += theSrcRowBytes;
+        aDstRow += aDstRowBytes;
+      }
+      break;
+    }
+    default:
+      // Unsupported format for conversion - just copy
+      for (int y = 0; y < theHeight; ++y)
+      {
+        memcpy(aDstRow, aSrcRow, aDstRowBytes);
+        aSrcRow += theSrcRowBytes;
+        aDstRow += aDstRowBytes;
+      }
+      break;
   }
 }
 
@@ -484,12 +618,28 @@ bool Metal_Texture::Upload(Metal_Context* theCtx,
 
   int aBytesPerPixel = BytesPerPixel(myPixelFormat);
   NSUInteger aBytesPerRow = theImage.Width() * aBytesPerPixel;
+  const int aWidth = (int)theImage.Width();
+  const int aHeight = (int)theImage.Height();
 
-  // Handle potential format conversion (RGB to RGBA, etc.)
-  // For now, assume formats match
+  // Handle format conversion if needed (RGB->RGBA, BGR->RGBA, etc.)
+  std::vector<uint8_t> aConvertedData;
   const void* aData = theImage.Data();
 
-  MTLRegion aRegion = MTLRegionMake2D(0, 0, theImage.Width(), theImage.Height());
+  if (NeedsFormatConversion(theImage.Format()))
+  {
+    const size_t aConvertedSize = aWidth * aHeight * aBytesPerPixel;
+    aConvertedData.resize(aConvertedSize);
+    ConvertImageFormat(theImage.Data(),
+                       aConvertedData.data(),
+                       aWidth,
+                       aHeight,
+                       theImage.SizeRowBytes(),
+                       theImage.Format(),
+                       aBytesPerPixel);
+    aData = aConvertedData.data();
+  }
+
+  MTLRegion aRegion = MTLRegionMake2D(0, 0, aWidth, aHeight);
 
   if (myTextureType == Metal_TextureType_Cube)
   {

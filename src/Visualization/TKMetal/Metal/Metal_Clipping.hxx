@@ -85,13 +85,30 @@ public:
   int NbActivePlanes() const { return myNbClipPlanesOn; }
 
   //! Set world-view matrix for transforming clipping planes.
+  //! Automatically recalculates plane equations in view space.
   void SetWorldViewMatrix(const float* theMat)
   {
+    bool aChanged = false;
     for (int i = 0; i < 16; ++i)
     {
-      myWorldViewMatrix[i] = theMat[i];
+      if (myWorldViewMatrix[i] != theMat[i])
+      {
+        myWorldViewMatrix[i] = theMat[i];
+        aChanged = true;
+      }
+    }
+    if (aChanged && myPlanes.Length() > 0)
+    {
+      recalculatePlanes();
     }
   }
+
+  //! Update all plane equations to view space using current matrix.
+  //! Call this when planes change or before rendering.
+  Standard_EXPORT void UpdateViewSpacePlanes();
+
+  //! Return the current world-view matrix.
+  const float* WorldViewMatrix() const { return myWorldViewMatrix; }
 
 protected:
 

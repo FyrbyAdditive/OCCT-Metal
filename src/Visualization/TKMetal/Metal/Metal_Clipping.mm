@@ -272,3 +272,15 @@ void Metal_Clipping::recalculatePlanes()
     aData.IsEnabled = aPlane->IsOn() ? 1 : 0;
   }
 }
+
+// =======================================================================
+// function : UpdateViewSpacePlanes
+// purpose  : Public method to update plane equations
+// =======================================================================
+void Metal_Clipping::UpdateViewSpacePlanes()
+{
+  if (myPlanes.Length() > 0)
+  {
+    recalculatePlanes();
+  }
+}

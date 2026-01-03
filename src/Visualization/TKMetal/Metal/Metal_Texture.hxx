@@ -218,6 +218,26 @@ public:
   //! Return bytes per block for compressed format.
   Standard_EXPORT static int CompressedBytesPerBlock(int theMetalFormat);
 
+  //! Check if image format requires conversion for Metal (e.g., RGB->RGBA).
+  //! @return true if conversion is needed
+  Standard_EXPORT static bool NeedsFormatConversion(Image_Format theFormat);
+
+  //! Convert image data from source format to Metal-compatible format.
+  //! Handles RGB->RGBA, BGR->BGRA, RGBF->RGBAF, etc.
+  //! @param theSrc source image data
+  //! @param theDst destination buffer (must be pre-allocated)
+  //! @param theWidth image width
+  //! @param theHeight image height
+  //! @param theSrcFormat source format
+  //! @param theDstBytesPerPixel bytes per pixel in destination
+  Standard_EXPORT static void ConvertImageFormat(const void* theSrc,
+                                                  void* theDst,
+                                                  int theWidth,
+                                                  int theHeight,
+                                                  size_t theSrcRowBytes,
+                                                  Image_Format theSrcFormat,
+                                                  int theDstBytesPerPixel);
+
 protected:
 
 #ifdef __OBJC__

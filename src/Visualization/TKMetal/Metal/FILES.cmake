@@ -7,6 +7,8 @@ set(OCCT_Metal_FILES
   Metal_BackgroundRenderer.mm
   Metal_Buffer.hxx
   Metal_Buffer.mm
+  Metal_BufferPool.hxx
+  Metal_BufferPool.mm
   Metal_CappingAlgo.hxx
   Metal_CappingAlgo.mm
   Metal_Caps.hxx
