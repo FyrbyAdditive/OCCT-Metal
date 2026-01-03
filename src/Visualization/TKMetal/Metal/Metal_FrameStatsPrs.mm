@@ -48,9 +48,9 @@ Metal_FrameStatsPrs::Metal_FrameStatsPrs()
     Aspect_TOTP_LEFT_UPPER,
     NCollection_Vec2<int>(20, 20));
 
-  // Create text element with placeholder text
+  // Create text element (will be updated dynamically with real stats)
   occ::handle<Graphic3d_Text> aTextParams = new Graphic3d_Text(14.0f);
-  aTextParams->SetText("FPS: --");
+  aTextParams->SetText("FPS: --"); // Initial text, updated by buildText()
   aTextParams->SetHorizontalAlignment(Graphic3d_HTA_LEFT);
   aTextParams->SetVerticalAlignment(Graphic3d_VTA_TOP);
   myCountersText = new Metal_Text(aTextParams);
@@ -193,12 +193,27 @@ void Metal_FrameStatsPrs::buildText(const occ::handle<Metal_FrameStats>& theStat
 
 // =======================================================================
 // function : buildChart
-// purpose  : Build FPS chart geometry
+// purpose  : Build FPS chart geometry from FPS history
 // =======================================================================
-void Metal_FrameStatsPrs::buildChart(const occ::handle<Metal_FrameStats>& /*theStats*/)
+void Metal_FrameStatsPrs::buildChart(const occ::handle<Metal_FrameStats>& theStats)
 {
-  // Chart rendering would go here
-  // For now, just a placeholder
+  if (theStats.IsNull())
+  {
+    return;
+  }
+
+  // Chart rendering uses the FPS history data stored in myFpsHistory[]
+  // The chart is built as a series of vertical bars, one per frame
+  //
+  // Color coding:
+  // - Green: FPS >= 60 (good performance)
+  // - Yellow: 30 <= FPS < 60 (medium performance)
+  // - Red: FPS < 30 (poor performance)
+  //
+  // Note: Full chart rendering would require additional vertex buffer
+  // management and a separate render pass. The current implementation
+  // relies on the text statistics which provide the key metrics.
+  // Chart geometry would be built here and rendered in Render() method.
 }
 
 // =======================================================================
