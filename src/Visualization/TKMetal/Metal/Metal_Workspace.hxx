@@ -174,6 +174,16 @@ public:
   //! Return depth-stencil state with depth write disabled (for transparent objects).
   Standard_EXPORT void ApplyTransparentDepthState();
 
+  //! Enable stencil test for rendering.
+  //! @param theIsEnabled true to enable stencil test
+  Standard_EXPORT void SetStencilTest(bool theIsEnabled);
+
+  //! Return true if stencil test is currently enabled.
+  bool IsStencilTestEnabled() const { return myStencilTestEnabled; }
+
+  //! Apply stencil test depth-stencil state.
+  Standard_EXPORT void ApplyStencilTestState();
+
   //! Return current render filter.
   Metal_RenderFilter RenderFilter() const { return myRenderFilter; }
 
@@ -241,6 +251,7 @@ protected:
   bool                           myIsEdgeRendering;  //!< edge rendering mode flag
   bool                           myIsWireframeMode;  //!< wireframe mode flag
   bool                           myIsTransparentMode; //!< transparent/blending mode flag
+  bool                           myStencilTestEnabled; //!< stencil test enabled flag
 
   Metal_ShaderManager*           myShaderManager;    //!< shader manager
   Metal_Clipping*                myClipping;         //!< clipping manager

@@ -40,14 +40,14 @@ Metal_ShadowMap::Metal_ShadowMap(Metal_Context* theContext, int theSize)
 // =======================================================================
 Metal_ShadowMap::~Metal_ShadowMap()
 {
-  Release();
+  Release(myContext);
 }
 
 // =======================================================================
 // function : Release
 // purpose  : Release GPU resources
 // =======================================================================
-void Metal_ShadowMap::Release()
+void Metal_ShadowMap::Release(Metal_Context* /*theCtx*/)
 {
   myDepthTexture = nil;
   myRenderPassDesc = nil;
@@ -58,14 +58,14 @@ void Metal_ShadowMap::Release()
 // function : EstimatedDataSize
 // purpose  : Return estimated GPU memory usage
 // =======================================================================
-Standard_Size Metal_ShadowMap::EstimatedDataSize() const
+size_t Metal_ShadowMap::EstimatedDataSize() const
 {
   if (!myIsValid)
   {
     return 0;
   }
   // Depth32Float = 4 bytes per pixel
-  return static_cast<Standard_Size>(mySize) * mySize * 4;
+  return static_cast<size_t>(mySize) * mySize * 4;
 }
 
 // =======================================================================
@@ -133,7 +133,7 @@ void Metal_ShadowMap::ComputeLightSpaceMatrix(
   // Compute scene center and radius
   Graphic3d_Vec3 aCenter = (theSceneMin + theSceneMax) * 0.5f;
   Graphic3d_Vec3 aExtent = theSceneMax - theSceneMin;
-  float aRadius = aExtent.GetMaxComponent() * 0.5f * 1.5f; // Add margin
+  float aRadius = aExtent.maxComp() * 0.5f * 1.5f; // Add margin
 
   // Get light direction (for directional lights)
   Graphic3d_Vec3 aLightDir;
@@ -178,9 +178,9 @@ void Metal_ShadowMap::ComputeLightSpaceMatrix(
   // Compute view matrix (look-at)
   Graphic3d_Vec3 aZAxis = -aLightDir;
   aZAxis.Normalize();
-  Graphic3d_Vec3 aXAxis = aUp.Crossed(aZAxis);
+  Graphic3d_Vec3 aXAxis = Graphic3d_Vec3::Cross(aUp, aZAxis);
   aXAxis.Normalize();
-  Graphic3d_Vec3 aYAxis = aZAxis.Crossed(aXAxis);
+  Graphic3d_Vec3 aYAxis = Graphic3d_Vec3::Cross(aZAxis, aXAxis);
 
   NCollection_Mat4<float> aViewMat;
   aViewMat.SetRow(0, Graphic3d_Vec4(aXAxis.x(), aXAxis.y(), aXAxis.z(), -aXAxis.Dot(aLightPos)));

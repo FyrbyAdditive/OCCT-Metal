@@ -16,7 +16,12 @@
 
 #include <Metal_Resource.hxx>
 #include <Graphic3d_CLight.hxx>
+#include <NCollection_Vec3.hxx>
+#include <NCollection_Vec4.hxx>
 #include <NCollection_Mat4.hxx>
+
+typedef NCollection_Vec3<float> Graphic3d_Vec3;
+typedef NCollection_Vec4<float> Graphic3d_Vec4;
 
 class Metal_Context;
 
@@ -41,10 +46,10 @@ public:
   Standard_EXPORT ~Metal_ShadowMap();
 
   //! Release GPU resources.
-  Standard_EXPORT virtual void Release() override;
+  Standard_EXPORT virtual void Release(Metal_Context* theCtx) override;
 
   //! Return estimated GPU memory usage in bytes.
-  Standard_EXPORT virtual Standard_Size EstimatedDataSize() const override;
+  Standard_EXPORT virtual size_t EstimatedDataSize() const override;
 
   //! Return true if shadow map is valid.
   bool IsValid() const { return myIsValid; }

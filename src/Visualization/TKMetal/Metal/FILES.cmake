@@ -27,8 +27,11 @@ set(OCCT_Metal_FILES
   Metal_FrameBuffer.mm
   Metal_FrameStats.hxx
   Metal_FrameStats.mm
+  Metal_FrameStatsPrs.hxx
+  Metal_FrameStatsPrs.mm
   Metal_GraduatedTrihedron.hxx
   Metal_GraduatedTrihedron.mm
+  Metal_HaltonSampler.hxx
   Metal_GraphicDriver.hxx
   Metal_GraphicDriver.mm
   Metal_GraphicDriverFactory.hxx
@@ -63,6 +66,12 @@ set(OCCT_Metal_FILES
   Metal_Sampler.mm
   Metal_ShaderManager.hxx
   Metal_ShaderManager.mm
+  Metal_ShaderObject.hxx
+  Metal_ShaderObject.mm
+  Metal_ShaderProgram.hxx
+  Metal_ShaderProgram.mm
+  Metal_ShadowMap.hxx
+  Metal_ShadowMap.mm
   Metal_StencilOps.hxx
   Metal_StereoComposer.hxx
   Metal_StereoComposer.mm
@@ -72,6 +81,10 @@ set(OCCT_Metal_FILES
   Metal_Text.mm
   Metal_Texture.hxx
   Metal_Texture.mm
+  Metal_TextureSet.hxx
+  Metal_TextureSet.mm
+  Metal_TileSampler.hxx
+  Metal_TileSampler.mm
   Metal_UniformBuffer.hxx
   Metal_UniformBuffer.mm
   Metal_VertexBuffer.hxx

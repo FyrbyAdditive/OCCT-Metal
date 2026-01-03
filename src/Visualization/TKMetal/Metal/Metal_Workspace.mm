@@ -38,6 +38,7 @@ Metal_Workspace::Metal_Workspace(Metal_Context* theCtx, Metal_View* theView)
   myIsEdgeRendering(false),
   myIsWireframeMode(false),
   myIsTransparentMode(false),
+  myStencilTestEnabled(false),
   myShaderManager(nullptr),
   myClipping(nullptr),
   myShadingModel(Graphic3d_TypeOfShadingModel_Phong),
@@ -435,4 +436,73 @@ bool Metal_Workspace::ShouldRender(const occ::handle<Graphic3d_Aspects>& theAspe
   }
 
   return true;
+}
+
+// =======================================================================
+// function : SetStencilTest
+// purpose  : Enable/disable stencil test for rendering
+// =======================================================================
+void Metal_Workspace::SetStencilTest(bool theIsEnabled)
+{
+  myStencilTestEnabled = theIsEnabled;
+}
+
+// =======================================================================
+// function : ApplyStencilTestState
+// purpose  : Apply stencil test depth-stencil state
+// =======================================================================
+void Metal_Workspace::ApplyStencilTestState()
+{
+  if (myEncoder == nil || myContext == nullptr)
+  {
+    return;
+  }
+
+  if (myStencilTestEnabled)
+  {
+    // Create or get stencil test depth-stencil state
+    // Uses reference value 1 for standard stencil testing
+    static id<MTLDepthStencilState> aStencilTestState = nil;
+    if (aStencilTestState == nil)
+    {
+      id<MTLDevice> aDevice = myContext->Device();
+      if (aDevice != nil)
+      {
+        MTLDepthStencilDescriptor* aDesc = [[MTLDepthStencilDescriptor alloc] init];
+        aDesc.depthCompareFunction = MTLCompareFunctionLess;
+        aDesc.depthWriteEnabled = myUseDepthWrite ? YES : NO;
+
+        // Configure stencil test: only render where stencil equals reference
+        MTLStencilDescriptor* aStencilDesc = [[MTLStencilDescriptor alloc] init];
+        aStencilDesc.stencilCompareFunction = MTLCompareFunctionEqual;
+        aStencilDesc.stencilFailureOperation = MTLStencilOperationKeep;
+        aStencilDesc.depthFailureOperation = MTLStencilOperationKeep;
+        aStencilDesc.depthStencilPassOperation = MTLStencilOperationKeep;
+        aStencilDesc.readMask = 0xFF;
+        aStencilDesc.writeMask = 0x00; // don't modify stencil when testing
+
+        aDesc.frontFaceStencil = aStencilDesc;
+        aDesc.backFaceStencil = aStencilDesc;
+
+        aStencilTestState = [aDevice newDepthStencilStateWithDescriptor:aDesc];
+      }
+    }
+
+    if (aStencilTestState != nil && aStencilTestState != myDepthStencilState)
+    {
+      [myEncoder setDepthStencilState:aStencilTestState];
+      [myEncoder setStencilReferenceValue:1];
+      myDepthStencilState = aStencilTestState;
+    }
+  }
+  else
+  {
+    // Revert to default depth-stencil state
+    id<MTLDepthStencilState> aDepthState = myContext->DefaultDepthStencilState();
+    if (aDepthState != nil && aDepthState != myDepthStencilState)
+    {
+      [myEncoder setDepthStencilState:aDepthState];
+      myDepthStencilState = aDepthState;
+    }
+  }
 }

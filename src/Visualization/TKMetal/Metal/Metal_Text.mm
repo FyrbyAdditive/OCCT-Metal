@@ -578,43 +578,10 @@ void Metal_Text::drawText(Metal_Context* theCtx,
     return;
   }
 
-  id<MTLRenderCommandEncoder> anEncoder = theCtx->ActiveEncoder();
-  if (anEncoder == nil)
-  {
-    return;
-  }
-
-  // Draw each texture batch
-  for (int i = 0; i < myVertsBuffers.Length(); ++i)
-  {
-    id<MTLBuffer> aVertsBuffer = myVertsBuffers.Value(i);
-    id<MTLBuffer> aTCrdsBuffer = myTCrdsBuffers.Value(i);
-    int aTexIndex = myTextureIndices.Value(i);
-
-    if (aVertsBuffer == nil || aTCrdsBuffer == nil)
-    {
-      continue;
-    }
-
-    // Bind font texture
-    const occ::handle<Metal_Texture>& aTexture = myFont->Texture(aTexIndex);
-    if (!aTexture.IsNull() && aTexture->IsValid())
-    {
-      [anEncoder setFragmentTexture:aTexture->TextureId() atIndex:0];
-    }
-
-    // Bind vertex buffers
-    [anEncoder setVertexBuffer:aVertsBuffer offset:0 atIndex:0];
-    [anEncoder setVertexBuffer:aTCrdsBuffer offset:0 atIndex:1];
-
-    // Calculate vertex count
-    NSUInteger aVertexCount = [aVertsBuffer length] / (2 * sizeof(float));
-
-    // Draw triangles
-    [anEncoder drawPrimitives:MTLPrimitiveTypeTriangle
-                  vertexStart:0
-                  vertexCount:aVertexCount];
-  }
+  // TODO: This method needs refactoring to get encoder from Metal_Workspace
+  // For now, text rendering through this code path is not implemented
+  // The main Render(Metal_Workspace*) method should be used instead
+  (void)theCtx;
 }
 
 // =======================================================================
@@ -625,45 +592,11 @@ void Metal_Text::drawRect(Metal_Context* theCtx,
                            const Graphic3d_Aspects& theAspect,
                            const NCollection_Vec4<float>& theColor) const
 {
+  // TODO: This method needs refactoring to get encoder from Metal_Workspace
+  // For now, text rect rendering through this code path is not implemented
+  (void)theCtx;
   (void)theAspect;
   (void)theColor;
-
-  if (theCtx == nullptr)
-  {
-    return;
-  }
-
-  id<MTLDevice> aDevice = theCtx->Device();
-  id<MTLRenderCommandEncoder> anEncoder = theCtx->ActiveEncoder();
-  if (aDevice == nil || anEncoder == nil)
-  {
-    return;
-  }
-
-  // Create background quad buffer if needed
-  if (myBndVertsBuffer == nil)
-  {
-    float aQuad[8] = {
-      myBndBox.Right, myBndBox.Bottom,
-      myBndBox.Right, myBndBox.Top,
-      myBndBox.Left, myBndBox.Bottom,
-      myBndBox.Left, myBndBox.Top
-    };
-    myBndVertsBuffer = [aDevice newBufferWithBytes:aQuad
-                                            length:sizeof(aQuad)
-                                           options:MTLResourceStorageModeShared];
-  }
-
-  if (myBndVertsBuffer == nil)
-  {
-    return;
-  }
-
-  // Draw background as triangle strip
-  [anEncoder setVertexBuffer:myBndVertsBuffer offset:0 atIndex:0];
-  [anEncoder drawPrimitives:MTLPrimitiveTypeTriangleStrip
-                vertexStart:0
-                vertexCount:4];
 }
 
 // =======================================================================

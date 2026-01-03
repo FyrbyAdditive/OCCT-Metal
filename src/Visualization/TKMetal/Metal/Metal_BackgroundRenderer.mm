@@ -310,7 +310,7 @@ void Metal_BackgroundRenderer::Render(Metal_Workspace* theWorkspace,
     simd_float4x4 aInvVP = matrix_identity_float4x4;
 
     [anEncoder setVertexBytes:&aInvVP length:sizeof(aInvVP) atIndex:0];
-    [anEncoder setFragmentTexture:myCubemap->TextureId() atIndex:0];
+    [anEncoder setFragmentTexture:myCubemap->Texture() atIndex:0];
     [anEncoder setFragmentSamplerState:theBackgroundSampler atIndex:0];
 
     [anEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
@@ -353,7 +353,7 @@ void Metal_BackgroundRenderer::Render(Metal_Workspace* theWorkspace,
 
     if (aUniforms.hasTexture)
     {
-      [anEncoder setFragmentTexture:myTexture->TextureId() atIndex:0];
+      [anEncoder setFragmentTexture:myTexture->Texture() atIndex:0];
     }
     [anEncoder setFragmentSamplerState:theBackgroundSampler atIndex:0];
 

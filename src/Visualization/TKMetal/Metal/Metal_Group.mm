@@ -18,6 +18,7 @@
 #include <Metal_PrimitiveArray.hxx>
 #include <Metal_Text.hxx>
 #include <Aspect_InteriorStyle.hxx>
+#include <gp.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_Group, Graphic3d_Group)
 
@@ -26,7 +27,10 @@ IMPLEMENT_STANDARD_RTTIEXT(Metal_Group, Graphic3d_Group)
 // purpose  : Constructor
 // =======================================================================
 Metal_Group::Metal_Group(const occ::handle<Graphic3d_Structure>& theStruct)
-: Graphic3d_Group(theStruct)
+: Graphic3d_Group(theStruct),
+  myStencilTestEnabled(false),
+  myFlippingEnabled(false),
+  myFlippingRefPlane(gp::XOY())
 {
   //
 }
@@ -165,8 +169,7 @@ void Metal_Group::AddText(const occ::handle<Graphic3d_Text>& theTextParams,
 // =======================================================================
 void Metal_Group::SetStencilTestOptions(const bool theIsEnabled)
 {
-  (void)theIsEnabled;
-  // Stencil test not implemented yet
+  myStencilTestEnabled = theIsEnabled;
 }
 
 // =======================================================================
@@ -176,9 +179,8 @@ void Metal_Group::SetStencilTestOptions(const bool theIsEnabled)
 void Metal_Group::SetFlippingOptions(const bool theIsEnabled,
                                      const gp_Ax2& theRefPlane)
 {
-  (void)theIsEnabled;
-  (void)theRefPlane;
-  // Flipping not implemented yet
+  myFlippingEnabled = theIsEnabled;
+  myFlippingRefPlane = theRefPlane;
 }
 
 // =======================================================================
@@ -203,6 +205,14 @@ void Metal_Group::Render(Metal_Workspace* theWorkspace) const
   if (theWorkspace == nullptr)
   {
     return;
+  }
+
+  // Apply stencil test if enabled for this group
+  const bool aPrevStencilTest = theWorkspace->IsStencilTestEnabled();
+  if (myStencilTestEnabled != aPrevStencilTest)
+  {
+    theWorkspace->SetStencilTest(myStencilTestEnabled);
+    theWorkspace->ApplyStencilTestState();
   }
 
   // Apply aspect to workspace
@@ -297,6 +307,13 @@ void Metal_Group::Render(Metal_Workspace* theWorkspace) const
     {
       aText->Render(theWorkspace);
     }
+  }
+
+  // Restore previous stencil test state if we changed it
+  if (myStencilTestEnabled != aPrevStencilTest)
+  {
+    theWorkspace->SetStencilTest(aPrevStencilTest);
+    theWorkspace->ApplyStencilTestState();
   }
 }
 

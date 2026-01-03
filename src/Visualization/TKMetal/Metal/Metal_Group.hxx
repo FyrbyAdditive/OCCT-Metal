@@ -96,11 +96,23 @@ public:
            || (myStructure != nullptr && !myStructure->TransformPersistence().IsNull());
   }
 
+  //! Return true if stencil test is enabled.
+  bool IsStencilTestEnabled() const { return myStencilTestEnabled; }
+
+  //! Return true if flipping is enabled.
+  bool IsFlippingEnabled() const { return myFlippingEnabled; }
+
+  //! Return the flipping reference plane.
+  const gp_Ax2& FlippingRefPlane() const { return myFlippingRefPlane; }
+
 protected:
 
-  occ::handle<Graphic3d_Aspects>          myAspect;      //!< group aspect
-  NCollection_List<Metal_PrimitiveArray*> myPrimitives;  //!< list of primitive arrays
-  NCollection_List<occ::handle<Metal_Text>> myTexts;     //!< list of text elements
+  occ::handle<Graphic3d_Aspects>          myAspect;             //!< group aspect
+  NCollection_List<Metal_PrimitiveArray*> myPrimitives;         //!< list of primitive arrays
+  NCollection_List<occ::handle<Metal_Text>> myTexts;            //!< list of text elements
+  bool                                    myStencilTestEnabled; //!< stencil test flag
+  bool                                    myFlippingEnabled;    //!< flipping flag
+  gp_Ax2                                  myFlippingRefPlane;   //!< flipping reference plane
 };
 
 #endif // Metal_Group_HeaderFile

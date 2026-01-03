@@ -18,6 +18,8 @@
 #include <Metal_Texture.hxx>
 #include <Graphic3d_RenderingParams.hxx>
 
+#include <NCollection_BaseAllocator.hxx>
+
 #include <algorithm>
 #include <cmath>
 
@@ -65,8 +67,11 @@ void Metal_TileSampler::SetSize(const Graphic3d_RenderingParams& theParams,
   const int aNbTilesX = (myViewSize.x() + myTileSize - 1) / myTileSize;
   const int aNbTilesY = (myViewSize.y() + myTileSize - 1) / myTileSize;
 
+  // Get default allocator for all tile data
+  occ::handle<NCollection_BaseAllocator> anAlloc = NCollection_BaseAllocator::CommonBaseAllocator();
+
   // Initialize tiles with 1 sample each
-  myTiles.Init(Standard_Size(aNbTilesX), Standard_Size(aNbTilesY));
+  myTiles.Init(anAlloc, size_t(aNbTilesX), size_t(aNbTilesY));
   for (size_t aRow = 0; aRow < myTiles.SizeY; ++aRow)
   {
     for (size_t aCol = 0; aCol < myTiles.SizeX; ++aCol)
@@ -76,7 +81,7 @@ void Metal_TileSampler::SetSize(const Graphic3d_RenderingParams& theParams,
   }
 
   // Initialize tile samples (total pixels per tile)
-  myTileSamples.Init(Standard_Size(aNbTilesX), Standard_Size(aNbTilesY));
+  myTileSamples.Init(anAlloc, size_t(aNbTilesX), size_t(aNbTilesY));
   for (int aRow = 0; aRow < aNbTilesY; ++aRow)
   {
     for (int aCol = 0; aCol < aNbTilesX; ++aCol)
@@ -86,8 +91,8 @@ void Metal_TileSampler::SetSize(const Graphic3d_RenderingParams& theParams,
   }
 
   // Initialize variance map
-  myVarianceMap.Init(Standard_Size(aNbTilesX), Standard_Size(aNbTilesY));
-  myVarianceRaw.Init(Standard_Size(aNbTilesX), Standard_Size(aNbTilesY));
+  myVarianceMap.Init(anAlloc, size_t(aNbTilesX), size_t(aNbTilesY));
+  myVarianceRaw.Init(anAlloc, size_t(aNbTilesX), size_t(aNbTilesY));
   for (size_t aRow = 0; aRow < myVarianceMap.SizeY; ++aRow)
   {
     for (size_t aCol = 0; aCol < myVarianceMap.SizeX; ++aCol)
@@ -98,8 +103,8 @@ void Metal_TileSampler::SetSize(const Graphic3d_RenderingParams& theParams,
   }
 
   // Initialize offset maps
-  myOffsets.Init(Standard_Size(aNbTilesX), Standard_Size(aNbTilesY));
-  myOffsetsShrunk.Init(Standard_Size(aNbTilesX), Standard_Size(aNbTilesY));
+  myOffsets.Init(anAlloc, size_t(aNbTilesX), size_t(aNbTilesY));
+  myOffsetsShrunk.Init(anAlloc, size_t(aNbTilesX), size_t(aNbTilesY));
   for (int aRow = 0; aRow < aNbTilesY; ++aRow)
   {
     for (int aCol = 0; aCol < aNbTilesX; ++aCol)
@@ -139,7 +144,7 @@ void Metal_TileSampler::GrabVarianceMap(Metal_Context* theCtx,
   // For now, use a simplified approach - actual implementation would
   // use a blit encoder to copy texture data to a shared buffer
 
-  id<MTLTexture> aTexture = theTexture->TextureId();
+  id<MTLTexture> aTexture = theTexture->Texture();
   if (aTexture == nil)
   {
     return;
@@ -298,7 +303,7 @@ bool Metal_TileSampler::upload(Metal_Context* theCtx,
   // Upload samples texture
   if (!theSamplesTexture.IsNull() && theSamplesTexture->IsValid())
   {
-    id<MTLTexture> aTexture = theSamplesTexture->TextureId();
+    id<MTLTexture> aTexture = theSamplesTexture->Texture();
     if (aTexture != nil)
     {
       // Build samples data
@@ -322,7 +327,7 @@ bool Metal_TileSampler::upload(Metal_Context* theCtx,
   // Upload offsets texture
   if (!theOffsetsTexture.IsNull() && theOffsetsTexture->IsValid())
   {
-    id<MTLTexture> aTexture = theOffsetsTexture->TextureId();
+    id<MTLTexture> aTexture = theOffsetsTexture->Texture();
     if (aTexture != nil)
     {
       const Image_PixMapTypedData<NCollection_Vec2<int>>& anOffsets =
