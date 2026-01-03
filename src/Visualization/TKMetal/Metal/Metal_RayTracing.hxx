@@ -129,6 +129,29 @@ public:
                                     const float* theTexCoords,
                                     int theVertexCount);
 
+  //! Set diffuse texture array for ray tracing (Phase 8).
+  //! @param theCtx Metal context
+  //! @param theTextures array of textures
+  //! @param theTextureCount number of textures
+#ifdef __OBJC__
+  Standard_EXPORT void SetDiffuseTextures(Metal_Context* theCtx,
+                                          NSArray<id<MTLTexture>>* theTextures);
+#endif
+
+  //! Set normal map texture array for ray tracing (Phase 8).
+  //! @param theCtx Metal context
+  //! @param theTextures array of normal map textures
+#ifdef __OBJC__
+  Standard_EXPORT void SetNormalTextures(Metal_Context* theCtx,
+                                         NSArray<id<MTLTexture>>* theTextures);
+#endif
+
+  //! Set texturing enabled (Phase 8).
+  void SetTexturingEnabled(bool theEnabled) { myTexturingEnabled = theEnabled; }
+
+  //! Return true if texturing is enabled.
+  bool IsTexturingEnabled() const { return myTexturingEnabled; }
+
   //! Perform ray tracing to an output texture.
   //! @param theCtx Metal context
   //! @param theCommandBuffer command buffer
@@ -189,6 +212,7 @@ private:
   id<MTLComputePipelineState> myRefractionRayGenPipeline;  //!< Phase 6: Refraction ray generation
   id<MTLComputePipelineState> myRefractionColorPipeline;   //!< Phase 6: Compute refraction colors
   id<MTLComputePipelineState> myShadeWithAllPipeline;      //!< Phase 6: Full shading with reflections + refractions
+  id<MTLComputePipelineState> myShadeWithTexturesPipeline; //!< Phase 8: Full shading with textures
 
   // Buffers
   id<MTLBuffer> myVertexBuffer;
@@ -210,6 +234,11 @@ private:
   id<MTLBuffer> myRefractionIntersectionBuffer2; //!< Phase 6: Refraction intersections (second)
   id<MTLBuffer> myRefractionColorBuffer;     //!< Phase 6: Refraction colors
 
+  // Phase 8: Textures
+  id<MTLTexture> myDiffuseTextureArray;      //!< Phase 8: Diffuse texture array
+  id<MTLTexture> myNormalTextureArray;       //!< Phase 8: Normal map texture array
+  id<MTLSamplerState> myTextureSampler;      //!< Phase 8: Texture sampler
+
   // Shader library
   id<MTLLibrary> myShaderLibrary;
 #else
@@ -225,6 +254,7 @@ private:
   void* myRefractionRayGenPipeline;
   void* myRefractionColorPipeline;
   void* myShadeWithAllPipeline;
+  void* myShadeWithTexturesPipeline;
   void* myVertexBuffer;
   void* myIndexBuffer;
   void* myMaterialBuffer;
@@ -243,6 +273,9 @@ private:
   void* myRefractionIntersectionBuffer;
   void* myRefractionIntersectionBuffer2;
   void* myRefractionColorBuffer;
+  void* myDiffuseTextureArray;
+  void* myNormalTextureArray;
+  void* myTextureSampler;
   void* myShaderLibrary;
 #endif
 
@@ -254,6 +287,7 @@ private:
   bool myShadowsEnabled;
   bool myReflectionsEnabled;
   bool myRefractionsEnabled;
+  bool myTexturingEnabled;
   bool myIsValid;
 };
 
