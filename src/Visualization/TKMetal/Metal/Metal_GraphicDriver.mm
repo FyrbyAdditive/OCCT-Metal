@@ -141,9 +141,9 @@ int Metal_GraphicDriver::InquireLimit(const Graphic3d_TypeOfLimit theType) const
     case Graphic3d_TypeOfLimit_HasRayTracingTextures:
       return mySharedContext->HasRayTracing() ? 1 : 0;
     case Graphic3d_TypeOfLimit_HasRayTracingAdaptiveSampling:
-      return 0; // Not implemented yet
+      return mySharedContext->HasRayTracing() ? 1 : 0; // Enabled via Metal_TileSampler
     case Graphic3d_TypeOfLimit_HasRayTracingAdaptiveSamplingAtomic:
-      return 0; // Not implemented yet
+      return mySharedContext->HasRayTracing() ? 1 : 0; // Metal supports atomics
     case Graphic3d_TypeOfLimit_HasSRGB:
       return 1; // Metal always supports sRGB
     case Graphic3d_TypeOfLimit_HasPBR:
