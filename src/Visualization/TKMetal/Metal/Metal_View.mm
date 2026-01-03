@@ -992,22 +992,53 @@ void Metal_View::DiagnosticInformation(
   NCollection_IndexedDataMap<TCollection_AsciiString, TCollection_AsciiString>& theDict,
   Graphic3d_DiagnosticInfo theFlags) const
 {
-  if ((theFlags & Graphic3d_DiagnosticInfo_Device) != 0)
+  // Delegate to context for comprehensive device/GPU info
+  if (!myContext.IsNull())
   {
-    theDict.Add("GLvendor", "Apple");
-    theDict.Add("GLdevice", "Metal");
-    if (!myContext.IsNull())
+    myContext->DiagnosticInformation(theDict, theFlags);
+  }
+
+  // Add view-specific information
+  if ((theFlags & Graphic3d_DiagnosticInfo_FrameBuffer) != 0)
+  {
+    if (!myWindow.IsNull())
     {
-      theDict.Add("GLdeviceInfo", myContext->DeviceName());
+      theDict.Add("Viewport",
+                  TCollection_AsciiString(myWindow->Width()) + "x" + TCollection_AsciiString(myWindow->Height()));
+      theDict.Add("Scale Factor", TCollection_AsciiString(myWindow->ScaleFactor()));
+    }
+
+    // FBO info
+    if (!myFBO.IsNull() && myFBO->IsValid())
+    {
+      theDict.Add("FBO Size",
+                  TCollection_AsciiString(myFBO->GetSizeX()) + "x" + TCollection_AsciiString(myFBO->GetSizeY()));
+      theDict.Add("FBO MSAA Samples", TCollection_AsciiString(myFBO->NbSamples()));
     }
   }
 
-  if ((theFlags & Graphic3d_DiagnosticInfo_Memory) != 0)
+  // Layer statistics
+  if ((theFlags & Graphic3d_DiagnosticInfo_Device) != 0)
   {
-    if (!myContext.IsNull())
+    theDict.Add("Z-Layer Count", TCollection_AsciiString((int)myLayers.Size()));
+    theDict.Add("Max Z-Layer ID", TCollection_AsciiString(myZLayerMax));
+    theDict.Add("Frame Counter", TCollection_AsciiString(myFrameCounter));
+
+    // Count total structures
+    size_t aTotalStructs = 0;
+    for (NCollection_List<occ::handle<Graphic3d_Layer>>::Iterator aLayerIter(myLayers);
+         aLayerIter.More(); aLayerIter.Next())
     {
-      theDict.Add("GPUmemory", myContext->MemoryInfo());
+      const occ::handle<Graphic3d_Layer>& aLayer = aLayerIter.Value();
+      if (!aLayer.IsNull())
+      {
+        aTotalStructs += aLayer->NbStructures();
+      }
     }
+    theDict.Add("Total Structures", TCollection_AsciiString((int)aTotalStructs));
+
+    // IBL status
+    theDict.Add("IBL Enabled", myIBLEnabled ? "Yes" : "No");
   }
 }
 

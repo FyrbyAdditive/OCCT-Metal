@@ -506,20 +506,234 @@ void Metal_Context::DiagnosticInformation(
   NCollection_IndexedDataMap<TCollection_AsciiString, TCollection_AsciiString>& theDict,
   Graphic3d_DiagnosticInfo theFlags) const
 {
+  if ((theFlags & Graphic3d_DiagnosticInfo_NativePlatform) != 0)
+  {
+    theDict.Add("Platform", "Apple Metal");
+#if TARGET_OS_OSX
+    theDict.Add("OS", "macOS");
+#elif TARGET_OS_IOS
+    theDict.Add("OS", "iOS");
+#elif TARGET_OS_TV
+    theDict.Add("OS", "tvOS");
+#else
+    theDict.Add("OS", "Unknown Apple OS");
+#endif
+  }
+
   if ((theFlags & Graphic3d_DiagnosticInfo_Device) != 0)
   {
-    theDict.Add("Renderer", myDeviceName);
+    theDict.Add("GLvendor", "Apple");
+    theDict.Add("GLdevice", myDeviceName);
     theDict.Add("Graphics API", "Metal");
+
+    if (myDevice != nil)
+    {
+      // Device type
+      if (myDevice.isLowPower)
+      {
+        theDict.Add("GPU Type", "Integrated (Low Power)");
+      }
+      else
+      {
+        theDict.Add("GPU Type", "Discrete");
+      }
+
+      // Headless (no display attached)
+      if (myDevice.isHeadless)
+      {
+        theDict.Add("Headless", "Yes");
+      }
+
+      // Removable (eGPU)
+      if (@available(macOS 10.15, iOS 13.0, *))
+      {
+        if (myDevice.isRemovable)
+        {
+          theDict.Add("Removable (eGPU)", "Yes");
+        }
+      }
+
+      // Metal Feature Set / GPU Family
+      if (@available(macOS 10.15, iOS 13.0, *))
+      {
+        // Check GPU families (Apple Silicon vs Intel/AMD)
+        if ([myDevice supportsFamily:MTLGPUFamilyApple7])
+        {
+          theDict.Add("GPU Family", "Apple7 (M1 Pro/Max/Ultra or newer)");
+        }
+        else if ([myDevice supportsFamily:MTLGPUFamilyApple6])
+        {
+          theDict.Add("GPU Family", "Apple6 (A14/M1)");
+        }
+        else if ([myDevice supportsFamily:MTLGPUFamilyApple5])
+        {
+          theDict.Add("GPU Family", "Apple5 (A12/A13)");
+        }
+        else if ([myDevice supportsFamily:MTLGPUFamilyApple4])
+        {
+          theDict.Add("GPU Family", "Apple4 (A11)");
+        }
+        else if ([myDevice supportsFamily:MTLGPUFamilyMac2])
+        {
+          theDict.Add("GPU Family", "Mac2 (AMD/Intel discrete)");
+        }
+        else if ([myDevice supportsFamily:MTLGPUFamilyMac1])
+        {
+          theDict.Add("GPU Family", "Mac1 (Intel integrated)");
+        }
+        else
+        {
+          theDict.Add("GPU Family", "Common");
+        }
+      }
+
+      // Recommended working set size
+      if (@available(macOS 10.12, iOS 10.0, *))
+      {
+        NSUInteger workingSetSize = myDevice.recommendedMaxWorkingSetSize;
+        theDict.Add("Recommended Working Set",
+                    TCollection_AsciiString((int)(workingSetSize / (1024 * 1024))) + " MB");
+      }
+
+      // Registry ID (unique device identifier)
+      theDict.Add("Registry ID", TCollection_AsciiString((Standard_Integer)myDevice.registryID));
+    }
   }
 
   if ((theFlags & Graphic3d_DiagnosticInfo_Limits) != 0)
   {
     theDict.Add("Max Texture Size", TCollection_AsciiString(myMaxTexDim));
+    theDict.Add("Max Cube Texture Size", TCollection_AsciiString(myMaxTexDim)); // Metal uses same limit
+    theDict.Add("Max 3D Texture Size", TCollection_AsciiString(2048)); // Metal standard
     theDict.Add("Max Buffer Length", TCollection_AsciiString((int)(myMaxBufferLength / (1024 * 1024))) + " MB");
     theDict.Add("Max Color Attachments", TCollection_AsciiString(myMaxColorAttachments));
     theDict.Add("Max MSAA Samples", TCollection_AsciiString(myMaxMsaaSamples));
-    theDict.Add("Argument Buffers Tier 2", myHasArgumentBuffersTier2 ? "Yes" : "No");
-    theDict.Add("Ray Tracing", myHasRayTracing ? "Yes" : "No");
+    theDict.Add("Max Threads Per Threadgroup", TCollection_AsciiString(1024)); // Metal standard
+    theDict.Add("Max Threadgroup Memory", TCollection_AsciiString(32) + " KB"); // Metal standard
+
+    if (myDevice != nil)
+    {
+      // Argument buffer tier
+      if (@available(macOS 10.13, iOS 11.0, *))
+      {
+        MTLArgumentBuffersTier abTier = myDevice.argumentBuffersSupport;
+        if (abTier == MTLArgumentBuffersTier2)
+        {
+          theDict.Add("Argument Buffers Tier", "2 (Full bindless)");
+        }
+        else
+        {
+          theDict.Add("Argument Buffers Tier", "1 (Basic)");
+        }
+      }
+
+      // Read-write texture tier
+      if (@available(macOS 10.13, iOS 11.0, *))
+      {
+        MTLReadWriteTextureTier rwTier = myDevice.readWriteTextureSupport;
+        if (rwTier == MTLReadWriteTextureTier2)
+        {
+          theDict.Add("Read-Write Textures", "Tier 2 (All formats)");
+        }
+        else if (rwTier == MTLReadWriteTextureTier1)
+        {
+          theDict.Add("Read-Write Textures", "Tier 1 (Basic formats)");
+        }
+        else
+        {
+          theDict.Add("Read-Write Textures", "Not supported");
+        }
+      }
+    }
+  }
+
+  if ((theFlags & Graphic3d_DiagnosticInfo_Extensions) != 0 && myDevice != nil)
+  {
+    // Metal feature support as "extensions"
+    TCollection_AsciiString aFeatures;
+
+    // Ray tracing support
+    if (myHasRayTracing)
+    {
+      if (!aFeatures.IsEmpty()) aFeatures += ", ";
+      aFeatures += "RayTracing";
+    }
+
+    // Argument buffers tier 2
+    if (myHasArgumentBuffersTier2)
+    {
+      if (!aFeatures.IsEmpty()) aFeatures += ", ";
+      aFeatures += "ArgumentBuffersTier2";
+    }
+
+    // Check various features
+    if (@available(macOS 10.14, iOS 12.0, *))
+    {
+      if (myDevice.rasterOrderGroupsSupported)
+      {
+        if (!aFeatures.IsEmpty()) aFeatures += ", ";
+        aFeatures += "RasterOrderGroups";
+      }
+    }
+
+    if (@available(macOS 10.15, iOS 13.0, *))
+    {
+      if (myDevice.supportsPrimitiveMotionBlur)
+      {
+        if (!aFeatures.IsEmpty()) aFeatures += ", ";
+        aFeatures += "PrimitiveMotionBlur";
+      }
+
+      if ([myDevice supportsShaderBarycentricCoordinates])
+      {
+        if (!aFeatures.IsEmpty()) aFeatures += ", ";
+        aFeatures += "BarycentricCoordinates";
+      }
+    }
+
+    if (@available(macOS 11.0, iOS 14.0, *))
+    {
+      if ([myDevice supportsFunctionPointers])
+      {
+        if (!aFeatures.IsEmpty()) aFeatures += ", ";
+        aFeatures += "FunctionPointers";
+      }
+    }
+
+    // 32-bit float filtering
+    if (@available(macOS 10.14, iOS 12.0, *))
+    {
+      if (myDevice.supports32BitFloatFiltering)
+      {
+        if (!aFeatures.IsEmpty()) aFeatures += ", ";
+        aFeatures += "Float32Filtering";
+      }
+    }
+
+    // 32-bit MSAA
+    if (@available(macOS 10.14, iOS 12.0, *))
+    {
+      if (myDevice.supports32BitMSAA)
+      {
+        if (!aFeatures.IsEmpty()) aFeatures += ", ";
+        aFeatures += "MSAA32Bit";
+      }
+    }
+
+    // Depth resolve (for MSAA depth)
+    if (@available(macOS 10.14, iOS 12.0, *))
+    {
+      if (myDevice.supportsQueryTextureLOD)
+      {
+        if (!aFeatures.IsEmpty()) aFeatures += ", ";
+        aFeatures += "QueryTextureLOD";
+      }
+    }
+
+    if (!aFeatures.IsEmpty())
+    {
+      theDict.Add("Metal Features", aFeatures);
+    }
   }
 
   if ((theFlags & Graphic3d_DiagnosticInfo_Memory) != 0 && myDevice != nil)
@@ -530,6 +744,34 @@ void Metal_Context::DiagnosticInformation(
       theDict.Add("GPU Memory Allocated",
                   TCollection_AsciiString((int)(currentSize / (1024 * 1024))) + " MB");
     }
+
+    // Has unified memory (Apple Silicon)
+    if (@available(macOS 10.15, iOS 13.0, *))
+    {
+      if (myDevice.hasUnifiedMemory)
+      {
+        theDict.Add("Unified Memory", "Yes (Apple Silicon)");
+      }
+      else
+      {
+        theDict.Add("Unified Memory", "No (Discrete GPU)");
+      }
+    }
+
+    // Recommended working set
+    if (@available(macOS 10.12, iOS 10.0, *))
+    {
+      NSUInteger workingSetSize = myDevice.recommendedMaxWorkingSetSize;
+      theDict.Add("Max Working Set",
+                  TCollection_AsciiString((int)(workingSetSize / (1024 * 1024))) + " MB");
+    }
+  }
+
+  if ((theFlags & Graphic3d_DiagnosticInfo_FrameBuffer) != 0)
+  {
+    // Note: actual framebuffer info would come from the view/window
+    theDict.Add("Pixel Format", "BGRA8Unorm");
+    theDict.Add("Depth Format", "Depth32Float");
   }
 }
 
