@@ -3,6 +3,8 @@ set(OCCT_Metal_FILES_LOCATION "${CMAKE_CURRENT_LIST_DIR}")
 
 set(OCCT_Metal_FILES
   Metal_AspectState.hxx
+  Metal_BackgroundRenderer.hxx
+  Metal_BackgroundRenderer.mm
   Metal_Buffer.hxx
   Metal_Buffer.mm
   Metal_CappingAlgo.hxx
