@@ -41,7 +41,9 @@ Metal_Workspace::Metal_Workspace(Metal_Context* theCtx, Metal_View* theView)
   myShaderManager(nullptr),
   myClipping(nullptr),
   myShadingModel(Graphic3d_TypeOfShadingModel_Phong),
-  myRenderFilter(Metal_RenderFilter_Empty)
+  myRenderFilter(Metal_RenderFilter_Empty),
+  myUseDepthWrite(true),
+  myNbSkippedTransparent(0)
 {
   myModelMatrix.InitIdentity();
   myProjectionMatrix.InitIdentity();

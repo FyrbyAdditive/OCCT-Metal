@@ -134,6 +134,12 @@ public:
     myVPSizeY = theVPSizeY;
   }
 
+  //! Bind this framebuffer for rendering.
+  Standard_EXPORT void BindBuffer(const occ::handle<Metal_Context>& theCtx);
+
+  //! Unbind this framebuffer.
+  Standard_EXPORT void UnbindBuffer(const occ::handle<Metal_Context>& theCtx);
+
   //! Return color texture at index.
   const occ::handle<Metal_Texture>& ColorTexture(int theIndex = 0) const
   {

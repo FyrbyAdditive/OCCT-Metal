@@ -15,6 +15,7 @@
 #define Metal_Context_HeaderFile
 
 #include <Aspect_GraphicsLibrary.hxx>
+#include <Graphic3d_Camera.hxx>
 #include <Graphic3d_DiagnosticInfo.hxx>
 #include <Metal_Caps.hxx>
 #include <Metal_Resource.hxx>
@@ -22,6 +23,7 @@
 #include <NCollection_DataMap.hxx>
 #include <NCollection_IndexedDataMap.hxx>
 #include <NCollection_List.hxx>
+#include <NCollection_Mat4.hxx>
 #include <NCollection_Shared.hxx>
 #include <Standard_Transient.hxx>
 #include <TCollection_AsciiString.hxx>
@@ -230,6 +232,79 @@ public: //! @name Frame management for triple-buffering
   //! Wait for frame to become available (blocks until GPU finishes).
   Standard_EXPORT void WaitForFrame();
 
+public: //! @name Render state management
+
+  //! Return current depth compare function.
+  int DepthFunc() const { return myDepthFunc; }
+
+  //! Set depth compare function.
+  Standard_EXPORT void SetDepthFunc(int theFunc);
+
+  //! Return current depth write mask.
+  bool DepthMask() const { return myDepthMask; }
+
+  //! Set depth write mask.
+  Standard_EXPORT void SetDepthMask(bool theValue);
+
+  //! Return true if blending is enabled.
+  bool BlendEnabled() const { return myBlendEnabled; }
+
+  //! Enable or disable blending.
+  Standard_EXPORT void SetBlendEnabled(bool theValue);
+
+  //! Set blend function (source and destination factors).
+  Standard_EXPORT void SetBlendFunc(int theSrcFactor, int theDstFactor);
+
+  //! Set blend function with separate alpha factors.
+  Standard_EXPORT void SetBlendFuncSeparate(int theSrcRGB, int theDstRGB, int theSrcAlpha, int theDstAlpha);
+
+  //! Return true if color mask is enabled.
+  bool ColorMask() const { return myColorMask; }
+
+  //! Enable or disable color writing.
+  Standard_EXPORT void SetColorMask(bool theValue);
+
+  //! Clear depth buffer.
+  Standard_EXPORT void ClearDepth();
+
+  //! Clear color buffer with specified color.
+  Standard_EXPORT void ClearColor(float theR, float theG, float theB, float theA);
+
+  //! Bind shader program (nullptr to unbind).
+  Standard_EXPORT void BindProgram(void* theProgram);
+
+  //! Return the camera.
+  const occ::handle<Graphic3d_Camera>& Camera() const { return myCamera; }
+
+  //! Set the camera.
+  void SetCamera(const occ::handle<Graphic3d_Camera>& theCamera) { myCamera = theCamera; }
+
+  //! Return shader manager.
+  class Metal_ShaderManager* ShaderManager() const { return myShaderManager; }
+
+  //! Set shader manager.
+  void SetShaderManager(class Metal_ShaderManager* theManager) { myShaderManager = theManager; }
+
+public: //! @name State classes for tracking matrix state
+
+  //! Matrix state template for model/view/projection matrices.
+  template<typename T>
+  class MatrixState
+  {
+  public:
+    MatrixState() : myRevision(0) { myCurrent.InitIdentity(); }
+    const T& Current() const { return myCurrent; }
+    void SetCurrent(const T& theMat) { myCurrent = theMat; ++myRevision; }
+    size_t Revision() const { return myRevision; }
+  private:
+    T myCurrent;
+    size_t myRevision;
+  };
+
+  MatrixState<NCollection_Mat4<float>> WorldViewState;   //!< world-view matrix state
+  MatrixState<NCollection_Mat4<float>> ProjectionState;  //!< projection matrix state
+  MatrixState<NCollection_Mat4<float>> ModelWorldState;  //!< model-world matrix state
+
 public: //! @name Diagnostics
 
   //! Fill in the dictionary with Metal device info.
@@ -289,6 +364,19 @@ private:
   bool                    myHasRayTracing;        //!< Ray tracing support
   bool                    myIsInitialized;        //!< Initialization flag
   int                     myCurrentFrameIndex;    //!< Current frame for triple-buffering
+
+  // Render state
+  int                     myDepthFunc;            //!< Current depth compare function
+  bool                    myDepthMask;            //!< Current depth write mask
+  bool                    myBlendEnabled;         //!< Blending enabled flag
+  int                     myBlendSrcRGB;          //!< Blend source RGB factor
+  int                     myBlendDstRGB;          //!< Blend destination RGB factor
+  int                     myBlendSrcAlpha;        //!< Blend source alpha factor
+  int                     myBlendDstAlpha;        //!< Blend destination alpha factor
+  bool                    myColorMask;            //!< Color write mask
+
+  occ::handle<Graphic3d_Camera> myCamera;         //!< Current camera
+  class Metal_ShaderManager* myShaderManager;     //!< Shader manager
 };
 
 #endif // Metal_Context_HeaderFile

@@ -642,3 +642,27 @@ bool Metal_FrameBuffer::ReadDepthPixels(Metal_Context* theCtx,
 
   return true;
 }
+
+// =======================================================================
+// function : BindBuffer
+// purpose  : Bind this framebuffer for rendering
+// =======================================================================
+void Metal_FrameBuffer::BindBuffer(const occ::handle<Metal_Context>& theCtx)
+{
+  // In Metal, framebuffer binding is handled through render pass descriptors
+  // This method is provided for API compatibility with OpenGL patterns
+  // The actual binding happens when creating a render command encoder
+  // with RenderPassDescriptor()
+  (void)theCtx;
+}
+
+// =======================================================================
+// function : UnbindBuffer
+// purpose  : Unbind this framebuffer
+// =======================================================================
+void Metal_FrameBuffer::UnbindBuffer(const occ::handle<Metal_Context>& theCtx)
+{
+  // In Metal, framebuffer unbinding is handled by ending the render encoder
+  // This method is provided for API compatibility with OpenGL patterns
+  (void)theCtx;
+}

@@ -674,7 +674,7 @@ bool Metal_Texture::CreateCompressed(Metal_Context* theCtx,
     return false;
   }
 
-  if (theImage.IsEmpty())
+  if (theImage.FaceData().IsNull() || theImage.FaceData()->IsEmpty())
   {
     return false;
   }
@@ -690,7 +690,8 @@ bool Metal_Texture::CreateCompressed(Metal_Context* theCtx,
   myHeight = (int)theImage.SizeY();
   myDepth = 1;
   myTextureType = Metal_TextureType_2D;
-  myMipLevels = (int)theImage.MipMaps().Size() + 1; // Base level + mipmaps
+  // MipMaps() contains mip sizes including base level
+  myMipLevels = std::max(1, (int)theImage.MipMaps().Size());
   myArrayLayers = 1;
 
   MTLTextureDescriptor* aDesc = [[MTLTextureDescriptor alloc] init];
@@ -721,29 +722,38 @@ bool Metal_Texture::CreateCompressed(Metal_Context* theCtx,
   MTLRegion aRegion = MTLRegionMake2D(0, 0, myWidth, myHeight);
   [myTexture replaceRegion:aRegion
                mipmapLevel:0
-                 withBytes:theImage.FaceData(0)->Data()
+                 withBytes:theImage.FaceData()->Data()
                bytesPerRow:aBytesPerRow];
 
   // Upload mipmap levels
-  const NCollection_Vector<occ::handle<Image_CompressedPixMap>>& aMipMaps = theImage.MipMaps();
-  for (int aLevel = 0; aLevel < aMipMaps.Size(); ++aLevel)
+  // MipMaps() returns an array of mip level sizes (in bytes) stored sequentially in FaceData()
+  const NCollection_Array1<int>& aMipSizes = theImage.MipMaps();
+  const uint8_t* aDataPtr = theImage.FaceData()->Data();
+  size_t aDataOffset = 0;
+
+  // First entry in MipMaps is typically the base level size, subsequent are mip levels
+  int aMipWidth = myWidth;
+  int aMipHeight = myHeight;
+
+  for (int aLevel = 0; aLevel < aMipSizes.Size() && aLevel < myMipLevels; ++aLevel)
   {
-    const occ::handle<Image_CompressedPixMap>& aMip = aMipMaps.Value(aLevel);
-    if (aMip.IsNull() || aMip->IsEmpty())
+    int aMipBlocksWide = (aMipWidth + aBlockSize - 1) / aBlockSize;
+    int aMipBlocksHigh = (aMipHeight + aBlockSize - 1) / aBlockSize;
+    int aMipBytesPerRow = aMipBlocksWide * aBytesPerBlock;
+    int aMipSize = aMipBlocksWide * aMipBlocksHigh * aBytesPerBlock;
+
+    if (aLevel > 0) // Base level already uploaded
     {
-      continue;
+      MTLRegion aMipRegion = MTLRegionMake2D(0, 0, aMipWidth, aMipHeight);
+      [myTexture replaceRegion:aMipRegion
+                   mipmapLevel:aLevel
+                     withBytes:(aDataPtr + aDataOffset)
+                   bytesPerRow:aMipBytesPerRow];
     }
 
-    int aMipWidth = (int)aMip->SizeX();
-    int aMipHeight = (int)aMip->SizeY();
-    int aMipBlocksWide = (aMipWidth + aBlockSize - 1) / aBlockSize;
-    int aMipBytesPerRow = aMipBlocksWide * aBytesPerBlock;
-
-    MTLRegion aMipRegion = MTLRegionMake2D(0, 0, aMipWidth, aMipHeight);
-    [myTexture replaceRegion:aMipRegion
-                 mipmapLevel:aLevel + 1
-                   withBytes:aMip->FaceData(0)->Data()
-                 bytesPerRow:aMipBytesPerRow];
+    aDataOffset += aMipSize;
+    aMipWidth = std::max(1, aMipWidth / 2);
+    aMipHeight = std::max(1, aMipHeight / 2);
   }
 
   // Estimate size (approximate for compressed textures)

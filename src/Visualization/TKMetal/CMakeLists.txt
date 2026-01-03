@@ -11,6 +11,7 @@ if (APPLE)
   target_link_libraries(TKMetal PRIVATE
     "-framework Metal"
     "-framework MetalKit"
+    "-framework MetalPerformanceShaders"
     "-framework QuartzCore"
   )
 

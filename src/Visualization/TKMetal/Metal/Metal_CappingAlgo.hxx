@@ -16,6 +16,7 @@
 
 #include <Metal_Resource.hxx>
 #include <Graphic3d_ClipPlane.hxx>
+#include <NCollection_DataMap.hxx>
 #include <Standard_Handle.hxx>
 
 #ifdef __OBJC__

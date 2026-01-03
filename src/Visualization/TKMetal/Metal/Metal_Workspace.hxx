@@ -17,11 +17,15 @@
 #include <Standard_Transient.hxx>
 #include <Graphic3d_Aspects.hxx>
 #include <Graphic3d_LightSet.hxx>
+#include <Graphic3d_PolygonOffset.hxx>
+#include <Graphic3d_RenderingParams.hxx>
 #include <Graphic3d_TypeOfShadingModel.hxx>
 #include <Graphic3d_SequenceOfHClipPlane.hxx>
 #include <Metal_RenderFilter.hxx>
 #include <NCollection_Mat4.hxx>
 #include <Quantity_ColorRGBA.hxx>
+
+class Metal_TextureSet;
 
 #ifdef __OBJC__
 @protocol MTLRenderCommandEncoder;
@@ -181,6 +185,37 @@ public:
   //! @return true if aspect passes filter and should be rendered
   Standard_EXPORT bool ShouldRender(const occ::handle<Graphic3d_Aspects>& theAspect) const;
 
+public: //! @name Layer rendering support
+
+  //! Return Metal context as handle.
+  const occ::handle<Metal_Context>& GetContext() const { return myContextHandle; }
+
+  //! Return environment texture.
+  const occ::handle<Metal_TextureSet>& EnvironmentTexture() const { return myEnvTexture; }
+
+  //! Set environment texture.
+  void SetEnvironmentTexture(const occ::handle<Metal_TextureSet>& theTexture) { myEnvTexture = theTexture; }
+
+  //! Set default polygon offset and return previous value.
+  Graphic3d_PolygonOffset SetDefaultPolygonOffset(const Graphic3d_PolygonOffset& theOffset)
+  {
+    Graphic3d_PolygonOffset aPrev = myPolygonOffset;
+    myPolygonOffset = theOffset;
+    return aPrev;
+  }
+
+  //! Return depth write flag.
+  bool& UseDepthWrite() { return myUseDepthWrite; }
+
+  //! Reset skipped transparent elements counter.
+  void ResetSkippedCounter() { myNbSkippedTransparent = 0; }
+
+  //! Return number of skipped transparent elements.
+  int NbSkippedTransparentElements() const { return myNbSkippedTransparent; }
+
+  //! Increment skipped transparent elements counter.
+  void IncrementSkippedCounter() { ++myNbSkippedTransparent; }
+
 protected:
 
   Metal_Context* myContext;      //!< Metal context
@@ -212,6 +247,12 @@ protected:
   Graphic3d_TypeOfShadingModel   myShadingModel;     //!< current shading model
   occ::handle<Graphic3d_LightSet> myLightSources;    //!< current light sources
   Metal_RenderFilter             myRenderFilter;     //!< current render filter
+
+  occ::handle<Metal_Context>     myContextHandle;    //!< Metal context as handle
+  occ::handle<Metal_TextureSet>  myEnvTexture;       //!< environment texture
+  Graphic3d_PolygonOffset        myPolygonOffset;    //!< current polygon offset
+  bool                           myUseDepthWrite;    //!< depth write flag
+  int                            myNbSkippedTransparent; //!< number of skipped transparent elements
 };
 
 #endif // Metal_Workspace_HeaderFile

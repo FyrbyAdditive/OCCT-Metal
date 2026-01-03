@@ -452,9 +452,9 @@ void Metal_StereoComposer::Compose(Metal_Context* theCtx,
     return;
   }
 
-  id<MTLTexture> aLeftTex = theLeftEye->ColorTexture();
-  id<MTLTexture> aRightTex = theRightEye->ColorTexture();
-  id<MTLTexture> aTargetTex = theTarget.IsNull() ? nil : theTarget->ColorTexture();
+  id<MTLTexture> aLeftTex = theLeftEye->ColorTexture()->Texture();
+  id<MTLTexture> aRightTex = theRightEye->ColorTexture()->Texture();
+  id<MTLTexture> aTargetTex = theTarget.IsNull() ? nil : theTarget->ColorTexture()->Texture();
 
   Compose(theCtx, aCmdBuffer, aLeftTex, aRightTex, aTargetTex,
           theMode, theReverseStereo, theAnaglyphLeft, theAnaglyphRight,

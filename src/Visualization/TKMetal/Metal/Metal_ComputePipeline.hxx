@@ -16,6 +16,7 @@
 
 #include <Standard_Transient.hxx>
 #include <Standard_Handle.hxx>
+#include <Standard_Type.hxx>
 #include <TCollection_AsciiString.hxx>
 
 #ifdef __OBJC__

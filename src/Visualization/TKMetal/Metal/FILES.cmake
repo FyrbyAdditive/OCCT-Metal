@@ -28,6 +28,10 @@ set(OCCT_Metal_FILES
   Metal_IndexBuffer.mm
   Metal_InstanceBuffer.hxx
   Metal_InstanceBuffer.mm
+  Metal_Layer.hxx
+  Metal_LayerFilter.hxx
+  Metal_LayerList.hxx
+  Metal_LayerList.mm
   Metal_PostProcess.hxx
   Metal_PostProcess.mm
   Metal_PrimitiveArray.hxx

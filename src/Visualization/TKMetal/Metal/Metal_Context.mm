@@ -57,7 +57,16 @@ Metal_Context::Metal_Context(const occ::handle<Metal_Caps>& theCaps)
   myHasArgumentBuffersTier2(false),
   myHasRayTracing(false),
   myIsInitialized(false),
-  myCurrentFrameIndex(0)
+  myCurrentFrameIndex(0),
+  myDepthFunc(MTLCompareFunctionLess),
+  myDepthMask(true),
+  myBlendEnabled(false),
+  myBlendSrcRGB(MTLBlendFactorOne),
+  myBlendDstRGB(MTLBlendFactorZero),
+  myBlendSrcAlpha(MTLBlendFactorOne),
+  myBlendDstAlpha(MTLBlendFactorZero),
+  myColorMask(true),
+  myShaderManager(nullptr)
 {
   if (myCaps.IsNull())
   {
@@ -808,4 +817,99 @@ fragment float4 fragment_gradient(
     myMsgContext->SendInfo() << "Metal_Context: Default shaders initialized (with edge/wireframe/blending support)";
     return true;
   }
+}
+
+// =======================================================================
+// function : SetDepthFunc
+// purpose  : Set depth compare function
+// =======================================================================
+void Metal_Context::SetDepthFunc(int theFunc)
+{
+  myDepthFunc = theFunc;
+  // Note: In Metal, depth function is set via depth-stencil state object,
+  // which needs to be recreated when this changes. For dynamic changes,
+  // we track the state and apply it when creating render encoders.
+}
+
+// =======================================================================
+// function : SetDepthMask
+// purpose  : Set depth write mask
+// =======================================================================
+void Metal_Context::SetDepthMask(bool theValue)
+{
+  myDepthMask = theValue;
+  // Similar to SetDepthFunc, this is handled via depth-stencil state
+}
+
+// =======================================================================
+// function : SetBlendEnabled
+// purpose  : Enable or disable blending
+// =======================================================================
+void Metal_Context::SetBlendEnabled(bool theValue)
+{
+  myBlendEnabled = theValue;
+}
+
+// =======================================================================
+// function : SetBlendFunc
+// purpose  : Set blend function
+// =======================================================================
+void Metal_Context::SetBlendFunc(int theSrcFactor, int theDstFactor)
+{
+  myBlendSrcRGB = theSrcFactor;
+  myBlendDstRGB = theDstFactor;
+  myBlendSrcAlpha = theSrcFactor;
+  myBlendDstAlpha = theDstFactor;
+}
+
+// =======================================================================
+// function : SetBlendFuncSeparate
+// purpose  : Set blend function with separate alpha
+// =======================================================================
+void Metal_Context::SetBlendFuncSeparate(int theSrcRGB, int theDstRGB, int theSrcAlpha, int theDstAlpha)
+{
+  myBlendSrcRGB = theSrcRGB;
+  myBlendDstRGB = theDstRGB;
+  myBlendSrcAlpha = theSrcAlpha;
+  myBlendDstAlpha = theDstAlpha;
+}
+
+// =======================================================================
+// function : SetColorMask
+// purpose  : Enable or disable color writing
+// =======================================================================
+void Metal_Context::SetColorMask(bool theValue)
+{
+  myColorMask = theValue;
+}
+
+// =======================================================================
+// function : ClearDepth
+// purpose  : Clear depth buffer
+// =======================================================================
+void Metal_Context::ClearDepth()
+{
+  // In Metal, depth clearing is typically done via render pass descriptor
+  // This method is a placeholder for tracking state
+}
+
+// =======================================================================
+// function : ClearColor
+// purpose  : Clear color buffer
+// =======================================================================
+void Metal_Context::ClearColor(float theR, float theG, float theB, float theA)
+{
+  // In Metal, color clearing is typically done via render pass descriptor
+  // This method is a placeholder for tracking state
+  (void)theR; (void)theG; (void)theB; (void)theA;
+}
+
+// =======================================================================
+// function : BindProgram
+// purpose  : Bind shader program
+// =======================================================================
+void Metal_Context::BindProgram(void* theProgram)
+{
+  // In Metal, shader programs are bound via pipeline state objects
+  (void)theProgram;
 }
