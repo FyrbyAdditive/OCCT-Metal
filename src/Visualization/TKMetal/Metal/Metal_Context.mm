@@ -43,6 +43,7 @@ Metal_Context::Metal_Context(const occ::handle<Metal_Caps>& theCaps)
   myWireframePipeline(nil),
   myBlendingPipeline(nil),
   myGradientPipeline(nil),
+  myTexturedBackgroundPipeline(nil),
   myDefaultDepthStencilState(nil),
   myTransparentDepthStencilState(nil),
   myFrameSemaphore(nil),
@@ -129,6 +130,7 @@ void Metal_Context::forcedRelease()
   myWireframePipeline = nil;
   myBlendingPipeline = nil;
   myGradientPipeline = nil;
+  myTexturedBackgroundPipeline = nil;
   myDefaultDepthStencilState = nil;
   myTransparentDepthStencilState = nil;
   myDefaultLibrary = nil;
@@ -677,6 +679,66 @@ fragment float4 fragment_gradient(
 
   return mix(uniforms.colorFrom, uniforms.colorTo, t);
 }
+
+// Textured background structures
+struct TexturedBackgroundUniforms {
+  float2 textureScale;
+  float2 textureOffset;
+  float2 viewportSize;
+  int    fillMethod; // 0=stretch, 1=tile, 2=center
+  int    padding;
+};
+
+// Full-screen quad vertex shader for textured background
+vertex GradientVertexOut vertex_textured_background(uint vid [[vertex_id]])
+{
+  // Generate full-screen triangle (3 vertices covering entire screen)
+  GradientVertexOut out;
+  float2 positions[3] = {
+    float2(-1.0, -1.0),
+    float2( 3.0, -1.0),
+    float2(-1.0,  3.0)
+  };
+  out.position = float4(positions[vid], 0.0, 1.0);
+  out.texCoord = positions[vid] * 0.5 + 0.5;
+  return out;
+}
+
+// Textured background fragment shader
+fragment float4 fragment_textured_background(
+  GradientVertexOut in [[stage_in]],
+  constant TexturedBackgroundUniforms& uniforms [[buffer(0)]],
+  texture2d<float> backgroundTexture [[texture(0)]],
+  sampler textureSampler [[sampler(0)]])
+{
+  float2 uv = in.texCoord;
+
+  // Apply fill method
+  switch (uniforms.fillMethod) {
+    case 0: // Stretch - UV goes from 0 to 1, default behavior
+      uv = uv * uniforms.textureScale + uniforms.textureOffset;
+      break;
+    case 1: // Tile - repeat texture based on viewport/texture ratio
+      uv = uv * uniforms.textureScale + uniforms.textureOffset;
+      break;
+    case 2: // Center - center texture at original size
+      {
+        // Center the texture
+        float2 center = float2(0.5, 0.5);
+        uv = (uv - center) * uniforms.textureScale + center + uniforms.textureOffset;
+        // Clamp to check if we're outside the texture
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+          return float4(0.0, 0.0, 0.0, 1.0); // Background color for areas outside texture
+        }
+      }
+      break;
+  }
+
+  // Flip Y coordinate for proper image orientation
+  uv.y = 1.0 - uv.y;
+
+  return backgroundTexture.sample(textureSampler, uv);
+}
 )";
 
     NSError* error = nil;
@@ -788,6 +850,30 @@ fragment float4 fragment_gradient(
     else
     {
       myMsgContext->SendWarning() << "Metal_Context: Gradient shader functions not found";
+    }
+
+    // Create textured background pipeline
+    id<MTLFunction> texturedBgVertexFunc = [aLibrary newFunctionWithName:@"vertex_textured_background"];
+    id<MTLFunction> texturedBgFragmentFunc = [aLibrary newFunctionWithName:@"fragment_textured_background"];
+
+    if (texturedBgVertexFunc != nil && texturedBgFragmentFunc != nil)
+    {
+      MTLRenderPipelineDescriptor* texturedBgPipelineDesc = [[MTLRenderPipelineDescriptor alloc] init];
+      texturedBgPipelineDesc.vertexFunction = texturedBgVertexFunc;
+      texturedBgPipelineDesc.fragmentFunction = texturedBgFragmentFunc;
+      texturedBgPipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+      texturedBgPipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+
+      myTexturedBackgroundPipeline = [myDevice newRenderPipelineStateWithDescriptor:texturedBgPipelineDesc
+                                                                              error:&error];
+      if (myTexturedBackgroundPipeline == nil)
+      {
+        myMsgContext->SendWarning() << "Metal_Context: Textured background pipeline creation failed";
+      }
+    }
+    else
+    {
+      myMsgContext->SendWarning() << "Metal_Context: Textured background shader functions not found";
     }
 
     // Create depth-stencil state

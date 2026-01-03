@@ -245,8 +245,13 @@ void Metal_View::Redraw()
   aViewport.zfar = 1.0;
   [aRenderEncoder setViewport:aViewport];
 
+  // Draw textured background if enabled (takes priority over gradient)
+  if (!myBgTexture.IsNull())
+  {
+    drawTexturedBackground((__bridge void*)aRenderEncoder, aWidth, aHeight);
+  }
   // Draw gradient background if enabled
-  if (myBgGradientMethod != Aspect_GradientFillMethod_None)
+  else if (myBgGradientMethod != Aspect_GradientFillMethod_None)
   {
     drawGradientBackground((__bridge void*)aRenderEncoder, aWidth, aHeight);
   }
@@ -813,9 +818,30 @@ void Metal_View::SetGradientBackground(const Aspect_GradientBackground& theBackg
 void Metal_View::SetBackgroundImage(const occ::handle<Graphic3d_TextureMap>& theTextureMap,
                                     bool theToUpdatePBREnv)
 {
-  (void)theTextureMap;
   (void)theToUpdatePBREnv;
-  // Background image support will be implemented in later phases
+
+  // Release existing background texture
+  if (!myBgTexture.IsNull())
+  {
+    myBgTexture->Release(myContext.get());
+    myBgTexture.Nullify();
+  }
+
+  // Create new background texture if provided
+  if (!theTextureMap.IsNull() && !myContext.IsNull())
+  {
+    occ::handle<Image_PixMap> anImage = theTextureMap->GetImage(occ::handle<Image_SupportedFormats>());
+    if (!anImage.IsNull())
+    {
+      myBgTexture = new Metal_Texture();
+      if (!myBgTexture->Create2D(myContext.get(), *anImage, false))
+      {
+        myContext->Messenger()->SendWarning() << "Metal_View: Failed to create background texture";
+        myBgTexture.Nullify();
+      }
+    }
+  }
+
   myBackBufferRestored = false;
 }
 
@@ -1316,6 +1342,102 @@ void Metal_View::drawGradientBackground(void* theEncoderPtr, int theWidth, int t
   [aRenderEncoder setFragmentBytes:&aUniforms
                             length:sizeof(aUniforms)
                            atIndex:0];
+
+  // Draw full-screen triangle (3 vertices, generated in shader)
+  [aRenderEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+                     vertexStart:0
+                     vertexCount:3];
+}
+
+// =======================================================================
+// function : drawTexturedBackground
+// purpose  : Draw textured background
+// =======================================================================
+void Metal_View::drawTexturedBackground(void* theEncoderPtr, int theWidth, int theHeight)
+{
+  id<MTLRenderCommandEncoder> aRenderEncoder = (__bridge id<MTLRenderCommandEncoder>)theEncoderPtr;
+  if (aRenderEncoder == nil || myContext.IsNull() || myBgTexture.IsNull())
+  {
+    return;
+  }
+
+  id<MTLRenderPipelineState> aPipeline = myContext->TexturedBackgroundPipeline();
+  if (aPipeline == nil)
+  {
+    return;
+  }
+
+  // Textured background uniform structure matching shader
+  struct TexturedBackgroundUniforms {
+    float textureScale[2];
+    float textureOffset[2];
+    float viewportSize[2];
+    int   fillMethod;
+    int   padding;
+  } aUniforms;
+
+  // Calculate texture scale based on fill method
+  float aTexWidth = static_cast<float>(myBgTexture->Width());
+  float aTexHeight = static_cast<float>(myBgTexture->Height());
+  float aViewWidth = static_cast<float>(theWidth);
+  float aViewHeight = static_cast<float>(theHeight);
+
+  switch (myBgImageStyle)
+  {
+    case Aspect_FM_STRETCH:
+      // Stretch to fill - UV goes 0 to 1
+      aUniforms.textureScale[0] = 1.0f;
+      aUniforms.textureScale[1] = 1.0f;
+      aUniforms.fillMethod = 0;
+      break;
+
+    case Aspect_FM_TILE:
+      // Tile - repeat based on viewport/texture ratio
+      aUniforms.textureScale[0] = aViewWidth / aTexWidth;
+      aUniforms.textureScale[1] = aViewHeight / aTexHeight;
+      aUniforms.fillMethod = 1;
+      break;
+
+    case Aspect_FM_CENTERED:
+      // Center - show at original size
+      aUniforms.textureScale[0] = aViewWidth / aTexWidth;
+      aUniforms.textureScale[1] = aViewHeight / aTexHeight;
+      aUniforms.fillMethod = 2;
+      break;
+
+    default:
+      aUniforms.textureScale[0] = 1.0f;
+      aUniforms.textureScale[1] = 1.0f;
+      aUniforms.fillMethod = 0;
+      break;
+  }
+
+  aUniforms.textureOffset[0] = 0.0f;
+  aUniforms.textureOffset[1] = 0.0f;
+  aUniforms.viewportSize[0] = aViewWidth;
+  aUniforms.viewportSize[1] = aViewHeight;
+  aUniforms.padding = 0;
+
+  // Set pipeline state
+  [aRenderEncoder setRenderPipelineState:aPipeline];
+
+  // Pass uniform data to fragment shader
+  [aRenderEncoder setFragmentBytes:&aUniforms
+                            length:sizeof(aUniforms)
+                           atIndex:0];
+
+  // Bind texture
+  [aRenderEncoder setFragmentTexture:myBgTexture->Texture() atIndex:0];
+
+  // Create and bind sampler
+  MTLSamplerDescriptor* samplerDesc = [[MTLSamplerDescriptor alloc] init];
+  samplerDesc.minFilter = MTLSamplerMinMagFilterLinear;
+  samplerDesc.magFilter = MTLSamplerMinMagFilterLinear;
+  samplerDesc.sAddressMode = (myBgImageStyle == Aspect_FM_TILE) ? MTLSamplerAddressModeRepeat : MTLSamplerAddressModeClampToEdge;
+  samplerDesc.tAddressMode = (myBgImageStyle == Aspect_FM_TILE) ? MTLSamplerAddressModeRepeat : MTLSamplerAddressModeClampToEdge;
+
+  id<MTLSamplerState> sampler = [myContext->Device() newSamplerStateWithDescriptor:samplerDesc];
+  [aRenderEncoder setFragmentSamplerState:sampler atIndex:0];
 
   // Draw full-screen triangle (3 vertices, generated in shader)
   [aRenderEncoder drawPrimitives:MTLPrimitiveTypeTriangle

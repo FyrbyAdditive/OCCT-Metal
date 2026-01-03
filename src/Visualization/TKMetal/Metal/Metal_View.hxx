@@ -24,6 +24,7 @@
 #include <Metal_Caps.hxx>
 #include <Metal_Context.hxx>
 #include <Metal_FrameBuffer.hxx>
+#include <Metal_Texture.hxx>
 #include <Metal_Window.hxx>
 #include <NCollection_DataMap.hxx>
 #include <NCollection_List.hxx>
@@ -235,6 +236,9 @@ private: //! @name Internal rendering helpers
   //! Draw gradient background.
   void drawGradientBackground(void* theEncoder, int theWidth, int theHeight);
 
+  //! Draw textured background.
+  void drawTexturedBackground(void* theEncoder, int theWidth, int theHeight);
+
 protected:
 
   const Metal_GraphicDriver*        myDriver;          //!< Graphic driver
@@ -256,6 +260,7 @@ protected:
   Aspect_GradientFillMethod         myBgGradientMethod; //!< Gradient fill method
 
   Aspect_FillMethod                 myBgImageStyle;    //!< Background image style
+  occ::handle<Metal_Texture>        myBgTexture;       //!< Background texture
 
   // Layer management
   NCollection_List<occ::handle<Graphic3d_Layer>> myLayers; //!< Z-layers (ordered list)
