@@ -10,6 +10,10 @@ set(OCCT_Metal_FILES
   Metal_Caps.mm
   Metal_Clipping.hxx
   Metal_Clipping.mm
+  Metal_ComputeEncoder.hxx
+  Metal_ComputeEncoder.mm
+  Metal_ComputePipeline.hxx
+  Metal_ComputePipeline.mm
   Metal_Context.hxx
   Metal_Context.mm
   Metal_FrameBuffer.hxx
