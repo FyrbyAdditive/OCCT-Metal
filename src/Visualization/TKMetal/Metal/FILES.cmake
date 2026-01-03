@@ -21,6 +21,8 @@ set(OCCT_Metal_FILES
   Metal_ComputePipeline.mm
   Metal_Context.hxx
   Metal_Context.mm
+  Metal_DepthPeeling.hxx
+  Metal_DepthPeeling.mm
   Metal_Font.hxx
   Metal_Font.mm
   Metal_Flipper.hxx
