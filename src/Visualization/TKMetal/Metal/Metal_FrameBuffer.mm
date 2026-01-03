@@ -243,12 +243,13 @@ bool Metal_FrameBuffer::InitLazy(Metal_Context* theCtx,
 
 // =======================================================================
 // function : SetupViewport
-// purpose  : Setup viewport
+// purpose  : Setup viewport (API compatibility)
 // =======================================================================
 void Metal_FrameBuffer::SetupViewport(Metal_Context* /*theCtx*/)
 {
-  // Viewport is set via MTLRenderCommandEncoder, not stored here
-  // This is a placeholder for compatibility
+  // In Metal, viewport is set via [MTLRenderCommandEncoder setViewport:] call
+  // during rendering, not stored in framebuffer state.
+  // Use Metal_Workspace::SetViewport() when rendering.
 }
 
 // =======================================================================
@@ -882,24 +883,25 @@ bool Metal_FrameBuffer::TryCopyReadbackData(AsyncReadbackHandle& theHandle,
 
 // =======================================================================
 // function : BindBuffer
-// purpose  : Bind this framebuffer for rendering
+// purpose  : Bind this framebuffer for rendering (API compatibility)
 // =======================================================================
 void Metal_FrameBuffer::BindBuffer(const occ::handle<Metal_Context>& theCtx)
 {
-  // In Metal, framebuffer binding is handled through render pass descriptors
-  // This method is provided for API compatibility with OpenGL patterns
-  // The actual binding happens when creating a render command encoder
-  // with RenderPassDescriptor()
+  // In Metal, framebuffer binding is done by creating a render command encoder
+  // with a render pass descriptor:
+  //   MTLRenderPassDescriptor* desc = [framebuffer RenderPassDescriptor];
+  //   id<MTLRenderCommandEncoder> enc = [cmdBuf renderCommandEncoderWithDescriptor:desc];
+  // Use CreateRenderPassDescriptor() or RenderPassDescriptor() to get the descriptor.
   (void)theCtx;
 }
 
 // =======================================================================
 // function : UnbindBuffer
-// purpose  : Unbind this framebuffer
+// purpose  : Unbind this framebuffer (API compatibility)
 // =======================================================================
 void Metal_FrameBuffer::UnbindBuffer(const occ::handle<Metal_Context>& theCtx)
 {
-  // In Metal, framebuffer unbinding is handled by ending the render encoder
-  // This method is provided for API compatibility with OpenGL patterns
+  // In Metal, framebuffer unbinding is done by calling [encoder endEncoding]
+  // on the render command encoder.
   (void)theCtx;
 }
