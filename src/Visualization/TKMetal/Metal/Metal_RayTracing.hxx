@@ -167,6 +167,8 @@ private:
   // Compute pipeline for ray generation and shading
   id<MTLComputePipelineState> myRayGenPipeline;
   id<MTLComputePipelineState> myShadePipeline;
+  id<MTLComputePipelineState> myShadeNoShadowPipeline;
+  id<MTLComputePipelineState> myShadowRayGenPipeline;
 
   // Buffers
   id<MTLBuffer> myVertexBuffer;
@@ -176,6 +178,8 @@ private:
   id<MTLBuffer> myLightBuffer;
   id<MTLBuffer> myRayBuffer;
   id<MTLBuffer> myIntersectionBuffer;
+  id<MTLBuffer> myShadowRayBuffer;           //!< Shadow rays
+  id<MTLBuffer> myShadowIntersectionBuffer;  //!< Shadow ray intersections
 
   // Shader library
   id<MTLLibrary> myShaderLibrary;
@@ -184,6 +188,8 @@ private:
   void* myRayIntersector;
   void* myRayGenPipeline;
   void* myShadePipeline;
+  void* myShadeNoShadowPipeline;
+  void* myShadowRayGenPipeline;
   void* myVertexBuffer;
   void* myIndexBuffer;
   void* myMaterialBuffer;
@@ -191,6 +197,8 @@ private:
   void* myLightBuffer;
   void* myRayBuffer;
   void* myIntersectionBuffer;
+  void* myShadowRayBuffer;
+  void* myShadowIntersectionBuffer;
   void* myShaderLibrary;
 #endif
 

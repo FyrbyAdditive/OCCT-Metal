@@ -50,7 +50,7 @@ struct CameraParams {
   int    maxBounces;
   int    shadowsEnabled;
   int    reflectionsEnabled;
-  int    padding;
+  int    lightCount;
 };
 
 // Ray structure for MPS
@@ -100,7 +100,64 @@ kernel void rayGen(
   rays[rayIndex].maxDistance = INFINITY;
 }
 
-// Shade intersections
+// Generate shadow rays from hit points toward light
+kernel void shadowRayGen(
+  device Ray* shadowRays [[buffer(0)]],
+  device const Intersection* primaryIntersections [[buffer(1)]],
+  device const Ray* primaryRays [[buffer(2)]],
+  constant CameraParams& camera [[buffer(3)]],
+  constant float3* vertices [[buffer(4)]],
+  constant uint* indices [[buffer(5)]],
+  constant RaytraceLight& light [[buffer(6)]],
+  uint2 gid [[thread_position_in_grid]])
+{
+  if (gid.x >= uint(camera.resolution.x) || gid.y >= uint(camera.resolution.y)) {
+    return;
+  }
+
+  uint rayIndex = gid.y * uint(camera.resolution.x) + gid.x;
+  Intersection isect = primaryIntersections[rayIndex];
+
+  // Default: invalid shadow ray (no hit on primary)
+  shadowRays[rayIndex].origin = float3(0.0);
+  shadowRays[rayIndex].minDistance = -1.0;  // Mark as invalid
+  shadowRays[rayIndex].direction = float3(0.0, 1.0, 0.0);
+  shadowRays[rayIndex].maxDistance = 0.0;
+
+  if (isect.distance < 0.0) {
+    return;  // No primary hit, no shadow ray needed
+  }
+
+  // Compute hit point
+  float3 hitPoint = float3(primaryRays[rayIndex].origin) +
+                    isect.distance * float3(primaryRays[rayIndex].direction);
+
+  // Compute light direction and distance
+  float3 lightDir;
+  float maxDist;
+
+  if (light.position.w < 0.5) {
+    // Directional light - ray goes to infinity
+    lightDir = normalize(-light.position.xyz);
+    maxDist = 1e38;
+  } else {
+    // Point light - ray goes to light position
+    float3 toLight = light.position.xyz - hitPoint;
+    float dist = length(toLight);
+    lightDir = toLight / dist;
+    maxDist = dist - 0.001;  // Stop just before light
+  }
+
+  // Offset origin slightly to avoid self-intersection
+  float3 shadowOrigin = hitPoint + lightDir * 0.001;
+
+  shadowRays[rayIndex].origin = shadowOrigin;
+  shadowRays[rayIndex].minDistance = 0.001;
+  shadowRays[rayIndex].direction = lightDir;
+  shadowRays[rayIndex].maxDistance = maxDist;
+}
+
+// Shade intersections with shadow support
 kernel void shade(
   texture2d<float, access::write> output [[texture(0)]],
   device const Intersection* intersections [[buffer(0)]],
@@ -110,8 +167,8 @@ kernel void shade(
   constant uint* indices [[buffer(4)]],
   constant RaytraceMaterial* materials [[buffer(5)]],
   constant RaytraceLight* lights [[buffer(6)]],
-  constant int& lightCount [[buffer(7)]],
-  constant int* materialIndices [[buffer(8)]],
+  constant int* materialIndices [[buffer(7)]],
+  device const Intersection* shadowIntersections [[buffer(8)]],
   uint2 gid [[thread_position_in_grid]])
 {
   if (gid.x >= uint(camera.resolution.x) || gid.y >= uint(camera.resolution.y)) {
@@ -163,7 +220,15 @@ kernel void shade(
     // Add ambient contribution
     totalLight += mat.ambient.rgb * 0.2;
 
-    for (int i = 0; i < lightCount; ++i) {
+    // Check shadow for first light (single light shadow in Phase 3)
+    bool inShadow = false;
+    if (camera.shadowsEnabled > 0) {
+      Intersection shadowIsect = shadowIntersections[rayIndex];
+      // If shadow ray hit something (distance > 0), we're in shadow
+      inShadow = (shadowIsect.distance > 0.0);
+    }
+
+    for (int i = 0; i < camera.lightCount; ++i) {
       RaytraceLight light = lights[i];
       float3 lightDir;
       float attenuation = 1.0;
@@ -179,10 +244,105 @@ kernel void shade(
         attenuation = 1.0 / (1.0 + 0.1 * dist * dist);
       }
 
+      // Shadow test: only first light uses shadow rays in Phase 3
+      float shadowFactor = 1.0;
+      if (i == 0 && inShadow) {
+        shadowFactor = 0.0;
+      }
+
+      float NdotL = max(dot(faceNormal, lightDir), 0.0);
+      totalLight += shadowFactor * diffuseColor * light.emission.rgb * light.emission.w * NdotL * attenuation;
+
+      // Specular (Blinn-Phong) - also affected by shadow
+      float3 viewDir = normalize(camera.origin - hitPoint);
+      float3 halfDir = normalize(lightDir + viewDir);
+      float NdotH = max(dot(faceNormal, halfDir), 0.0);
+      float shininess = max(mat.specular.w, 1.0);
+      float spec = pow(NdotH, shininess);
+      totalLight += shadowFactor * mat.specular.rgb * light.emission.rgb * spec * attenuation;
+    }
+
+    // Apply transparency (alpha from transparency.x, opacity = 1 - transparency.y)
+    float alpha = mat.transparency.x;
+    float opacity = 1.0 - mat.transparency.y;
+
+    // Clamp final color
+    color = float4(clamp(totalLight, 0.0, 1.0), alpha * opacity);
+  }
+
+  output.write(color, gid);
+}
+
+// Shade without shadows (fallback)
+kernel void shadeNoShadow(
+  texture2d<float, access::write> output [[texture(0)]],
+  device const Intersection* intersections [[buffer(0)]],
+  device const Ray* rays [[buffer(1)]],
+  constant CameraParams& camera [[buffer(2)]],
+  constant float3* vertices [[buffer(3)]],
+  constant uint* indices [[buffer(4)]],
+  constant RaytraceMaterial* materials [[buffer(5)]],
+  constant RaytraceLight* lights [[buffer(6)]],
+  constant int* materialIndices [[buffer(7)]],
+  uint2 gid [[thread_position_in_grid]])
+{
+  if (gid.x >= uint(camera.resolution.x) || gid.y >= uint(camera.resolution.y)) {
+    return;
+  }
+
+  uint rayIndex = gid.y * uint(camera.resolution.x) + gid.x;
+  Intersection isect = intersections[rayIndex];
+
+  float4 color;
+
+  if (isect.distance < 0.0) {
+    float3 dir = normalize(rays[rayIndex].direction);
+    float t = 0.5 * (dir.y + 1.0);
+    color = float4(mix(float3(0.1, 0.1, 0.15), float3(0.5, 0.7, 1.0), t), 1.0);
+  }
+  else {
+    uint triIndex = uint(isect.primitiveIndex);
+    uint i0 = indices[triIndex * 3 + 0];
+    uint i1 = indices[triIndex * 3 + 1];
+    uint i2 = indices[triIndex * 3 + 2];
+
+    float3 v0 = vertices[i0];
+    float3 v1 = vertices[i1];
+    float3 v2 = vertices[i2];
+
+    float3 edge1 = v1 - v0;
+    float3 edge2 = v2 - v0;
+    float3 normal = normalize(cross(edge1, edge2));
+
+    float3 hitPoint = rays[rayIndex].origin + isect.distance * rays[rayIndex].direction;
+
+    int matIdx = materialIndices[triIndex];
+    RaytraceMaterial mat = materials[matIdx];
+    float3 diffuseColor = mat.diffuse.rgb;
+
+    float3 rayDir = normalize(float3(rays[rayIndex].direction));
+    float3 faceNormal = dot(normal, rayDir) < 0.0 ? normal : -normal;
+
+    float3 totalLight = mat.emission.rgb;
+    totalLight += mat.ambient.rgb * 0.2;
+
+    for (int i = 0; i < camera.lightCount; ++i) {
+      RaytraceLight light = lights[i];
+      float3 lightDir;
+      float attenuation = 1.0;
+
+      if (light.position.w < 0.5) {
+        lightDir = normalize(-light.position.xyz);
+      } else {
+        float3 toLight = light.position.xyz - hitPoint;
+        float dist = length(toLight);
+        lightDir = toLight / dist;
+        attenuation = 1.0 / (1.0 + 0.1 * dist * dist);
+      }
+
       float NdotL = max(dot(faceNormal, lightDir), 0.0);
       totalLight += diffuseColor * light.emission.rgb * light.emission.w * NdotL * attenuation;
 
-      // Specular (Blinn-Phong)
       float3 viewDir = normalize(camera.origin - hitPoint);
       float3 halfDir = normalize(lightDir + viewDir);
       float NdotH = max(dot(faceNormal, halfDir), 0.0);
@@ -191,11 +351,8 @@ kernel void shade(
       totalLight += mat.specular.rgb * light.emission.rgb * spec * attenuation;
     }
 
-    // Apply transparency (alpha from transparency.x, opacity = 1 - transparency.y)
     float alpha = mat.transparency.x;
     float opacity = 1.0 - mat.transparency.y;
-
-    // Clamp final color
     color = float4(clamp(totalLight, 0.0, 1.0), alpha * opacity);
   }
 
@@ -212,6 +369,8 @@ Metal_RayTracing::Metal_RayTracing()
   myRayIntersector(nil),
   myRayGenPipeline(nil),
   myShadePipeline(nil),
+  myShadeNoShadowPipeline(nil),
+  myShadowRayGenPipeline(nil),
   myVertexBuffer(nil),
   myIndexBuffer(nil),
   myMaterialBuffer(nil),
@@ -219,6 +378,8 @@ Metal_RayTracing::Metal_RayTracing()
   myLightBuffer(nil),
   myRayBuffer(nil),
   myIntersectionBuffer(nil),
+  myShadowRayBuffer(nil),
+  myShadowIntersectionBuffer(nil),
   myShaderLibrary(nil),
   myVertexCount(0),
   myTriangleCount(0),
@@ -312,7 +473,7 @@ bool Metal_RayTracing::Init(Metal_Context* theCtx)
     }
   }
 
-  // Create shading pipeline
+  // Create shading pipeline (with shadow support)
   id<MTLFunction> aShadeFunc = [myShaderLibrary newFunctionWithName:@"shade"];
   if (aShadeFunc != nil)
   {
@@ -320,6 +481,32 @@ bool Metal_RayTracing::Init(Metal_Context* theCtx)
     if (myShadePipeline == nil)
     {
       Message::SendFail() << "Metal_RayTracing: shade pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
+  // Create shading pipeline without shadow (fallback)
+  id<MTLFunction> aShadeNoShadowFunc = [myShaderLibrary newFunctionWithName:@"shadeNoShadow"];
+  if (aShadeNoShadowFunc != nil)
+  {
+    myShadeNoShadowPipeline = [aDevice newComputePipelineStateWithFunction:aShadeNoShadowFunc error:&anError];
+    if (myShadeNoShadowPipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: shadeNoShadow pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
+  // Create shadow ray generation pipeline
+  id<MTLFunction> aShadowRayGenFunc = [myShaderLibrary newFunctionWithName:@"shadowRayGen"];
+  if (aShadowRayGenFunc != nil)
+  {
+    myShadowRayGenPipeline = [aDevice newComputePipelineStateWithFunction:aShadowRayGenFunc error:&anError];
+    if (myShadowRayGenPipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: shadowRayGen pipeline failed - "
                           << [[anError localizedDescription] UTF8String];
       return false;
     }
@@ -347,6 +534,8 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myRayIntersector = nil;
   myRayGenPipeline = nil;
   myShadePipeline = nil;
+  myShadeNoShadowPipeline = nil;
+  myShadowRayGenPipeline = nil;
   myVertexBuffer = nil;
   myIndexBuffer = nil;
   myMaterialBuffer = nil;
@@ -354,6 +543,8 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myLightBuffer = nil;
   myRayBuffer = nil;
   myIntersectionBuffer = nil;
+  myShadowRayBuffer = nil;
+  myShadowIntersectionBuffer = nil;
   myShaderLibrary = nil;
 
   myVertexCount = 0;
@@ -518,6 +709,23 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
                                                 options:MTLResourceStorageModePrivate];
   }
 
+  // Shadow ray buffers (only if shadows enabled and we have lights)
+  bool aUseShadows = myShadowsEnabled && myLightCount > 0 && myShadowRayGenPipeline != nil;
+  if (aUseShadows)
+  {
+    if (myShadowRayBuffer == nil || [myShadowRayBuffer length] < aRayBufferSize)
+    {
+      myShadowRayBuffer = [aDevice newBufferWithLength:aRayBufferSize
+                                               options:MTLResourceStorageModePrivate];
+    }
+
+    if (myShadowIntersectionBuffer == nil || [myShadowIntersectionBuffer length] < aIntersectionBufferSize)
+    {
+      myShadowIntersectionBuffer = [aDevice newBufferWithLength:aIntersectionBufferSize
+                                                        options:MTLResourceStorageModePrivate];
+    }
+  }
+
   // Camera parameters
   struct CameraParams {
     simd_float3 origin;
@@ -528,7 +736,7 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
     int maxBounces;
     int shadowsEnabled;
     int reflectionsEnabled;
-    int padding;
+    int lightCount;
   } aCameraParams;
 
   aCameraParams.origin = simd_make_float3(theCameraOrigin.x(), theCameraOrigin.y(), theCameraOrigin.z());
@@ -537,9 +745,9 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
   aCameraParams.fov = theFov;
   aCameraParams.resolution = simd_make_float2(static_cast<float>(aWidth), static_cast<float>(aHeight));
   aCameraParams.maxBounces = myMaxBounces;
-  aCameraParams.shadowsEnabled = myShadowsEnabled ? 1 : 0;
+  aCameraParams.shadowsEnabled = aUseShadows ? 1 : 0;
   aCameraParams.reflectionsEnabled = myReflectionsEnabled ? 1 : 0;
-  aCameraParams.padding = 0;
+  aCameraParams.lightCount = myLightCount;
 
   // Step 1: Generate rays
   {
@@ -554,7 +762,7 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
     [anEncoder endEncoding];
   }
 
-  // Step 2: Intersect rays with geometry
+  // Step 2: Intersect primary rays with geometry
   [myRayIntersector encodeIntersectionToCommandBuffer:theCommandBuffer
                                      intersectionType:MPSIntersectionTypeNearest
                                             rayBuffer:myRayBuffer
@@ -564,10 +772,53 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
                                              rayCount:aRayCount
                                 accelerationStructure:myAccelerationStructure];
 
-  // Step 3: Shade intersections
+  // Step 3: Generate and intersect shadow rays (if enabled)
+  if (aUseShadows)
+  {
+    // 3a: Generate shadow rays from hit points toward first light
+    {
+      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+      [anEncoder setComputePipelineState:myShadowRayGenPipeline];
+      [anEncoder setBuffer:myShadowRayBuffer offset:0 atIndex:0];
+      [anEncoder setBuffer:myIntersectionBuffer offset:0 atIndex:1];
+      [anEncoder setBuffer:myRayBuffer offset:0 atIndex:2];
+      [anEncoder setBytes:&aCameraParams length:sizeof(aCameraParams) atIndex:3];
+      [anEncoder setBuffer:myVertexBuffer offset:0 atIndex:4];
+      [anEncoder setBuffer:myIndexBuffer offset:0 atIndex:5];
+      [anEncoder setBuffer:myLightBuffer offset:0 atIndex:6];  // First light
+
+      MTLSize aThreadgroupSize = MTLSizeMake(8, 8, 1);
+      MTLSize aThreadgroups = MTLSizeMake((aWidth + 7) / 8, (aHeight + 7) / 8, 1);
+      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+      [anEncoder endEncoding];
+    }
+
+    // 3b: Intersect shadow rays with geometry (any hit is enough for shadow)
+    [myRayIntersector encodeIntersectionToCommandBuffer:theCommandBuffer
+                                       intersectionType:MPSIntersectionTypeAny
+                                              rayBuffer:myShadowRayBuffer
+                                        rayBufferOffset:0
+                                     intersectionBuffer:myShadowIntersectionBuffer
+                               intersectionBufferOffset:0
+                                               rayCount:aRayCount
+                                  accelerationStructure:myAccelerationStructure];
+  }
+
+  // Step 4: Shade intersections
   {
     id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
-    [anEncoder setComputePipelineState:myShadePipeline];
+
+    if (aUseShadows)
+    {
+      // Use shade kernel with shadow support
+      [anEncoder setComputePipelineState:myShadePipeline];
+    }
+    else
+    {
+      // Use shade kernel without shadow support
+      [anEncoder setComputePipelineState:myShadeNoShadowPipeline];
+    }
+
     [anEncoder setTexture:theOutputTexture atIndex:0];
     [anEncoder setBuffer:myIntersectionBuffer offset:0 atIndex:0];
     [anEncoder setBuffer:myRayBuffer offset:0 atIndex:1];
@@ -583,24 +834,24 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
     if (myLightBuffer != nil)
     {
       [anEncoder setBuffer:myLightBuffer offset:0 atIndex:6];
-      [anEncoder setBytes:&myLightCount length:sizeof(myLightCount) atIndex:7];
-    }
-    else
-    {
-      int zeroLights = 0;
-      [anEncoder setBytes:&zeroLights length:sizeof(zeroLights) atIndex:7];
     }
 
     // Material index buffer (per-triangle material lookup)
     if (myMaterialIndexBuffer != nil)
     {
-      [anEncoder setBuffer:myMaterialIndexBuffer offset:0 atIndex:8];
+      [anEncoder setBuffer:myMaterialIndexBuffer offset:0 atIndex:7];
     }
     else
     {
       // Fallback: all triangles use material 0
       static int32_t aZeroIndex = 0;
-      [anEncoder setBytes:&aZeroIndex length:sizeof(aZeroIndex) atIndex:8];
+      [anEncoder setBytes:&aZeroIndex length:sizeof(aZeroIndex) atIndex:7];
+    }
+
+    // Shadow intersection buffer (only used if shadows enabled)
+    if (aUseShadows)
+    {
+      [anEncoder setBuffer:myShadowIntersectionBuffer offset:0 atIndex:8];
     }
 
     MTLSize aThreadgroupSize = MTLSizeMake(8, 8, 1);
