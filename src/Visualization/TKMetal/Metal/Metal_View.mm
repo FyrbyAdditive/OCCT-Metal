@@ -23,6 +23,7 @@
 #include <Metal_Structure.hxx>
 #include <Metal_Workspace.hxx>
 #include <Metal_FrameBuffer.hxx>
+#include <Bnd_Box.hxx>
 #include <BVH_LinearBuilder.hxx>
 #include <Graphic3d_Structure.hxx>
 #include <Image_PixMap.hxx>
@@ -788,6 +789,23 @@ occ::handle<Graphic3d_Layer> Metal_View::Layer(const Graphic3d_ZLayerId theLayer
 {
   const occ::handle<Graphic3d_Layer>* aLayerPtr = myLayerMap.Seek(theLayerId);
   return (aLayerPtr != nullptr) ? *aLayerPtr : occ::handle<Graphic3d_Layer>();
+}
+
+// =======================================================================
+// function : MinMaxValues
+// purpose  : Returns the bounding box of all structures displayed in the view
+// =======================================================================
+Bnd_Box Metal_View::MinMaxValues(const bool theToIncludeAuxiliary) const
+{
+  if (!IsDefined())
+  {
+    return Bnd_Box();
+  }
+
+  // Use base class implementation which iterates through all layers
+  // and computes the combined bounding box
+  Bnd_Box aBox = Graphic3d_CView::MinMaxValues(theToIncludeAuxiliary);
+  return aBox;
 }
 
 // =======================================================================

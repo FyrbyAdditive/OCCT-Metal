@@ -133,6 +133,13 @@ public:
   //! Returns layer with given ID or NULL if undefined.
   Standard_EXPORT occ::handle<Graphic3d_Layer> Layer(const Graphic3d_ZLayerId theLayerId) const override;
 
+  //! Returns the coordinates of the boundary box of all
+  //! structures displayed in the view.
+  //! If theToIncludeAuxiliary is TRUE, then the boundary box
+  //! also includes minimum and maximum limits of graphical elements
+  //! forming parts of infinite structures.
+  Standard_EXPORT Bnd_Box MinMaxValues(const bool theToIncludeAuxiliary = false) const override;
+
   //! Returns pointer to an assigned framebuffer object.
   Standard_EXPORT occ::handle<Standard_Transient> FBO() const override;
 
