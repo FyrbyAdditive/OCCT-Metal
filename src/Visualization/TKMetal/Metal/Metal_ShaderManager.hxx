@@ -82,12 +82,14 @@ struct Metal_ObjectUniforms
 };
 
 //! Lighting uniform data.
+//! Note: This struct must match the Metal shader LightUniforms layout exactly.
+//! Metal requires struct size to be a multiple of 16 bytes due to float4 alignment.
 struct Metal_LightUniforms
 {
-  Metal_ShaderLightSource Lights[Metal_MaxLights];
-  float AmbientColor[4];   //!< global ambient
-  int   LightCount;        //!< number of active lights
-  int   Padding[3];
+  Metal_ShaderLightSource Lights[Metal_MaxLights];  //!< 8 * 64 = 512 bytes
+  float AmbientColor[4];   //!< global ambient (16 bytes, offset 512)
+  int   LightCount;        //!< number of active lights (4 bytes, offset 528)
+  int   Padding[7];        //!< alignment padding to 560 bytes (28 bytes, offset 532)
 };
 
 //! Clipping plane uniform data.
