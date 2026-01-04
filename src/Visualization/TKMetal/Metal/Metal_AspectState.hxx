@@ -168,6 +168,11 @@ public:
       // Reset hatch attribs for non-hatched styles
       myHatchAttribs = Metal_HatchAttribs();
     }
+
+    // Extract line attributes
+    myLineAttribs.SetType(theAspects->LineType());
+    myLineAttribs.Width = static_cast<float>(theAspects->LineWidth());
+    myLineAttribs.Factor = static_cast<uint16_t>(theAspects->LineStippleFactor());
   }
 
   //! @name Accessors
@@ -222,6 +227,18 @@ public:
   //! Return true if interior style is hatched.
   bool IsHatched() const { return myInteriorStyle == Aspect_IS_HATCH && myHatchAttribs.IsHatched(); }
 
+  //! Return line attributes.
+  const Metal_LineAttribs& LineAttribs() const { return myLineAttribs; }
+
+  //! Return modifiable line attributes.
+  Metal_LineAttribs& ChangeLineAttribs() { return myLineAttribs; }
+
+  //! Set line attributes.
+  void SetLineAttribs(const Metal_LineAttribs& theAttribs) { myLineAttribs = theAttribs; }
+
+  //! Return true if line is stippled (not solid).
+  bool IsStippled() const { return !myLineAttribs.IsSolid() && myLineAttribs.IsVisible(); }
+
 private:
 
   Aspect_InteriorStyle             myInteriorStyle;
@@ -241,6 +258,8 @@ private:
   Metal_PolygonOffset              myPolygonOffset;
 
   Metal_HatchAttribs               myHatchAttribs;
+
+  Metal_LineAttribs                myLineAttribs;
 };
 
 #endif // Metal_AspectState_HeaderFile
