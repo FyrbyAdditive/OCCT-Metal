@@ -23,6 +23,8 @@
 
 #ifdef __OBJC__
 @protocol MTLTexture;
+@protocol MTLBuffer;
+@protocol MTLCommandBuffer;
 @class MTLRenderPassDescriptor;
 #endif
 
