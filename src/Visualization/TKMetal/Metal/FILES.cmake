@@ -27,6 +27,8 @@ set(OCCT_Metal_FILES
   Metal_Font.mm
   Metal_Flipper.hxx
   Metal_Flipper.mm
+  Metal_GeometryEmulator.hxx
+  Metal_GeometryEmulator.mm
   Metal_FrameBuffer.hxx
   Metal_FrameBuffer.mm
   Metal_FrameStats.hxx
@@ -81,6 +83,8 @@ set(OCCT_Metal_FILES
   Metal_StereoComposer.mm
   Metal_Structure.hxx
   Metal_Structure.mm
+  Metal_TessellationController.hxx
+  Metal_TessellationController.mm
   Metal_Text.hxx
   Metal_Text.mm
   Metal_Texture.hxx

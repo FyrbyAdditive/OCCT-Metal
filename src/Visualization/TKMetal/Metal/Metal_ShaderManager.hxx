@@ -290,6 +290,13 @@ public: //! @name Shader program access
   //! Set default shading model.
   void SetShadingModel(Graphic3d_TypeOfShadingModel theModel) { myShadingModel = theModel; }
 
+  //! Return shader library for creating custom pipelines.
+#ifdef __OBJC__
+  id<MTLLibrary> ShaderLibrary() const { return myShaderLibrary; }
+#else
+  void* ShaderLibrary() const { return myShaderLibrary; }
+#endif
+
 public: //! @name Uniform buffer preparation
 
   //! Prepare frame uniforms structure.
