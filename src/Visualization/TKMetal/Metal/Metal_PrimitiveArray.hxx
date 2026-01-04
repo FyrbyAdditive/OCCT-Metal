@@ -65,6 +65,10 @@ public:
   //! Render edges of the primitive array (for triangle primitives, renders as lines).
   Standard_EXPORT void RenderEdges(Metal_Workspace* theWorkspace) const;
 
+  //! Render with MeshEdges (smooth anti-aliased wireframe overlay using geometry emulator).
+  //! Uses compute shader to calculate edge distances for each triangle.
+  Standard_EXPORT void RenderMeshEdges(Metal_Workspace* theWorkspace) const;
+
   //! Return true if resources are initialized.
   bool IsInitialized() const { return myIsInitialized; }
 

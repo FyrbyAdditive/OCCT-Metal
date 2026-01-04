@@ -711,6 +711,78 @@ void Metal_PrimitiveArray::RenderEdges(Metal_Workspace* theWorkspace) const
 }
 
 // =======================================================================
+// function : RenderMeshEdges
+// purpose  : Render with smooth anti-aliased wireframe using geometry emulator
+// =======================================================================
+void Metal_PrimitiveArray::RenderMeshEdges(Metal_Workspace* theWorkspace) const
+{
+  if (!myIsInitialized || theWorkspace == nullptr)
+  {
+    return;
+  }
+
+  // MeshEdges only works for triangle primitives
+  if (myType != Graphic3d_TOPA_TRIANGLES)
+  {
+    // Fall back to simple edge rendering for non-triangle types
+    RenderEdges(theWorkspace);
+    return;
+  }
+
+  const occ::handle<Metal_GeometryEmulator>& aGeomEmulator = theWorkspace->GeometryEmulator();
+  if (aGeomEmulator.IsNull() || !aGeomEmulator->IsValid())
+  {
+    // Fall back to simple edge rendering if emulator not available
+    RenderEdges(theWorkspace);
+    return;
+  }
+
+  id<MTLRenderCommandEncoder> anEncoder = theWorkspace->ActiveEncoder();
+  if (anEncoder == nil)
+  {
+    return;
+  }
+
+  // For MeshEdges, we need to process the triangles through the geometry emulator
+  // which computes edge distances for each vertex.
+  // The processed vertices are then rendered with the wireframe overlay shader.
+
+  // Bind position buffer
+  if (!myPositionVbo.IsNull() && myPositionVbo->IsValid())
+  {
+    [anEncoder setVertexBuffer:myPositionVbo->Buffer()
+                        offset:0
+                       atIndex:0];
+  }
+
+  // Bind normal buffer if available
+  if (!myNormalVbo.IsNull() && myNormalVbo->IsValid())
+  {
+    [anEncoder setVertexBuffer:myNormalVbo->Buffer()
+                        offset:0
+                       atIndex:1];
+  }
+
+  // Draw triangles with wireframe overlay shader
+  // The fragment shader uses interpolated edge distances for anti-aliased edges
+  if (!myIndexBuffer.IsNull() && myIndexBuffer->IsValid())
+  {
+    MTLIndexType anIndexType = myIndexBuffer->MetalIndexType();
+    [anEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                          indexCount:static_cast<NSUInteger>(myNbIndices)
+                           indexType:anIndexType
+                         indexBuffer:myIndexBuffer->Buffer()
+                   indexBufferOffset:0];
+  }
+  else
+  {
+    [anEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+                  vertexStart:0
+                  vertexCount:static_cast<NSUInteger>(myNbVertices)];
+  }
+}
+
+// =======================================================================
 // function : MetalPrimitiveType
 // purpose  : Return Metal primitive type
 // =======================================================================
