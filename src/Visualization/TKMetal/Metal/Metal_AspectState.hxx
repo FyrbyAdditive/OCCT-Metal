@@ -20,7 +20,9 @@
 #include <Graphic3d_TypeOfBackfacingModel.hxx>
 #include <Graphic3d_TypeOfShadingModel.hxx>
 #include <Graphic3d_Aspects.hxx>
+#include <Graphic3d_HatchStyle.hxx>
 #include <NCollection_Vec4.hxx>
+#include <Metal_LineAttribs.hxx>
 
 //! Material properties for Metal shaders.
 struct Metal_MaterialState
@@ -145,6 +147,27 @@ public:
     myBackMaterial.SetMaterial(theAspects->BackMaterial());
 
     myPolygonOffset = Metal_PolygonOffset(theAspects->PolygonOffset());
+
+    // Extract hatch style if interior style is hatched
+    if (myInteriorStyle == Aspect_IS_HATCH)
+    {
+      const occ::handle<Graphic3d_HatchStyle>& aHatchStyle = theAspects->HatchStyle();
+      if (!aHatchStyle.IsNull())
+      {
+        myHatchAttribs = Metal_HatchAttribs::FromAspectHatchStyle(
+          static_cast<Aspect_HatchStyle>(aHatchStyle->HatchType()));
+      }
+      else
+      {
+        // Default to cross-hatch if no style specified
+        myHatchAttribs = Metal_HatchAttribs::FromAspectHatchStyle(Aspect_HS_GRID_DIAGONAL);
+      }
+    }
+    else
+    {
+      // Reset hatch attribs for non-hatched styles
+      myHatchAttribs = Metal_HatchAttribs();
+    }
   }
 
   //! @name Accessors
@@ -187,6 +210,18 @@ public:
   const Metal_PolygonOffset& PolygonOffset() const { return myPolygonOffset; }
   void SetPolygonOffset(const Metal_PolygonOffset& theOffset) { myPolygonOffset = theOffset; }
 
+  //! Return hatch attributes.
+  const Metal_HatchAttribs& HatchAttribs() const { return myHatchAttribs; }
+
+  //! Return modifiable hatch attributes.
+  Metal_HatchAttribs& ChangeHatchAttribs() { return myHatchAttribs; }
+
+  //! Set hatch attributes.
+  void SetHatchAttribs(const Metal_HatchAttribs& theAttribs) { myHatchAttribs = theAttribs; }
+
+  //! Return true if interior style is hatched.
+  bool IsHatched() const { return myInteriorStyle == Aspect_IS_HATCH && myHatchAttribs.IsHatched(); }
+
 private:
 
   Aspect_InteriorStyle             myInteriorStyle;
@@ -204,6 +239,8 @@ private:
   Metal_MaterialState              myBackMaterial;
 
   Metal_PolygonOffset              myPolygonOffset;
+
+  Metal_HatchAttribs               myHatchAttribs;
 };
 
 #endif // Metal_AspectState_HeaderFile

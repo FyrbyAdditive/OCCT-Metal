@@ -108,6 +108,17 @@ struct Metal_LineUniforms
   float    Padding[2];
 };
 
+//! Hatch rendering uniform data for polygon fill patterns.
+struct Metal_HatchUniforms
+{
+  int32_t  HatchType;      //!< hatch pattern type (0=none, 1-12 predefined patterns)
+  float    Spacing;        //!< spacing between hatch lines in pixels
+  float    LineWidth;      //!< width of hatch lines in pixels
+  float    Angle;          //!< custom rotation angle (radians)
+  float    Viewport[2];    //!< viewport size for screen-space hatching
+  float    Padding[2];
+};
+
 //! Shader program configuration key.
 struct Metal_ShaderProgramKey
 {
@@ -257,6 +268,30 @@ public: //! @name Line attributes
   //! Return line uniforms.
   const Metal_LineUniforms& LineUniforms() const { return myLineUniforms; }
 
+public: //! @name Hatch attributes
+
+  //! Set hatch pattern type.
+  void SetHatchType(int32_t theType) { myHatchUniforms.HatchType = theType; }
+
+  //! Set hatch line spacing.
+  void SetHatchSpacing(float theSpacing) { myHatchUniforms.Spacing = theSpacing; }
+
+  //! Set hatch line width.
+  void SetHatchLineWidth(float theWidth) { myHatchUniforms.LineWidth = theWidth; }
+
+  //! Set hatch rotation angle.
+  void SetHatchAngle(float theAngle) { myHatchUniforms.Angle = theAngle; }
+
+  //! Set viewport size for hatch calculations.
+  void SetHatchViewport(float theWidth, float theHeight)
+  {
+    myHatchUniforms.Viewport[0] = theWidth;
+    myHatchUniforms.Viewport[1] = theHeight;
+  }
+
+  //! Return hatch uniforms.
+  const Metal_HatchUniforms& HatchUniforms() const { return myHatchUniforms; }
+
 public: //! @name Shader program access
 
   //! Get or create shader program for specified shading model and configuration.
@@ -347,6 +382,9 @@ protected:
 
   // Line attributes
   Metal_LineUniforms myLineUniforms;
+
+  // Hatch attributes
+  Metal_HatchUniforms myHatchUniforms;
 
   // Shading model
   Graphic3d_TypeOfShadingModel myShadingModel;

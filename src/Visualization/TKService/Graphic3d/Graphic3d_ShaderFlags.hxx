@@ -43,8 +43,9 @@ enum Graphic3d_ShaderFlags
   Graphic3d_ShaderFlags_WriteOit =
     0x0800, //!< write coverage buffer for Blended Order-Independent Transparency
   Graphic3d_ShaderFlags_OitDepthPeeling = 0x1000, //!< handle Depth Peeling OIT
+  Graphic3d_ShaderFlags_HatchPattern   = 0x2000, //!< polygon hatch pattern fill
   //
-  Graphic3d_ShaderFlags_NB      = 0x2000, //!< overall number of combinations
+  Graphic3d_ShaderFlags_NB      = 0x4000, //!< overall number of combinations
   Graphic3d_ShaderFlags_IsPoint = Graphic3d_ShaderFlags_PointSimple
                                   | Graphic3d_ShaderFlags_PointSprite
                                   | Graphic3d_ShaderFlags_PointSpriteA,

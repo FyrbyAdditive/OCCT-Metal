@@ -71,6 +71,15 @@ Metal_ShaderManager::Metal_ShaderManager(Metal_Context* theCtx)
   myLineUniforms.Viewport[0] = 800.0f;
   myLineUniforms.Viewport[1] = 600.0f;
 
+  // Initialize hatch uniforms
+  memset(&myHatchUniforms, 0, sizeof(myHatchUniforms));
+  myHatchUniforms.HatchType = 0;    // no hatching
+  myHatchUniforms.Spacing = 8.0f;
+  myHatchUniforms.LineWidth = 1.0f;
+  myHatchUniforms.Angle = 0.0f;
+  myHatchUniforms.Viewport[0] = 800.0f;
+  myHatchUniforms.Viewport[1] = 600.0f;
+
   // Create shader library
   createShaderLibrary();
 }
@@ -444,23 +453,40 @@ bool Metal_ShaderManager::createPipeline(Graphic3d_TypeOfShadingModel theModel,
     const bool hasClipping = (theBits & Graphic3d_ShaderFlags_ClipPlanesN) != 0
                           || (theBits & Graphic3d_ShaderFlags_ClipPlanes1) != 0
                           || (theBits & Graphic3d_ShaderFlags_ClipPlanes2) != 0;
+    const bool hasHatch = (theBits & Graphic3d_ShaderFlags_HatchPattern) != 0;
 
-    switch (theModel)
+    // Handle hatch patterns
+    if (hasHatch)
     {
-      case Graphic3d_TypeOfShadingModel_Unlit:
-        aVertexFunc = @"vertex_unlit";
-        aFragmentFunc = hasClipping ? @"fragment_unlit_clip" : @"fragment_unlit";
-        break;
-      case Graphic3d_TypeOfShadingModel_Gouraud:
-        aVertexFunc = @"vertex_gouraud";
-        aFragmentFunc = hasClipping ? @"fragment_gouraud_clip" : @"fragment_gouraud";
-        break;
-      case Graphic3d_TypeOfShadingModel_Phong:
-      case Graphic3d_TypeOfShadingModel_PhongFacet:
-      default:
-        aVertexFunc = @"vertex_phong";
-        aFragmentFunc = hasClipping ? @"fragment_phong_clip" : @"fragment_phong";
-        break;
+      aVertexFunc = @"vertex_hatch";
+      if (hasClipping)
+      {
+        aFragmentFunc = @"fragment_hatch_phong_clip";
+      }
+      else
+      {
+        aFragmentFunc = @"fragment_hatch_phong";
+      }
+    }
+    else
+    {
+      switch (theModel)
+      {
+        case Graphic3d_TypeOfShadingModel_Unlit:
+          aVertexFunc = @"vertex_unlit";
+          aFragmentFunc = hasClipping ? @"fragment_unlit_clip" : @"fragment_unlit";
+          break;
+        case Graphic3d_TypeOfShadingModel_Gouraud:
+          aVertexFunc = @"vertex_gouraud";
+          aFragmentFunc = hasClipping ? @"fragment_gouraud_clip" : @"fragment_gouraud";
+          break;
+        case Graphic3d_TypeOfShadingModel_Phong:
+        case Graphic3d_TypeOfShadingModel_PhongFacet:
+        default:
+          aVertexFunc = @"vertex_phong";
+          aFragmentFunc = hasClipping ? @"fragment_phong_clip" : @"fragment_phong";
+          break;
+      }
     }
 
     id<MTLFunction> aVertex = [myShaderLibrary newFunctionWithName:aVertexFunc];
@@ -1240,6 +1266,223 @@ TCollection_AsciiString Metal_ShaderManager::generateShaderSource() const
     "  }\n"
     "  \n"
     "  return float4(saturate(result), uniforms.color.a);\n"
+    "}\n"
+    "\n"
+    "// ======== HATCH PATTERN SHADERS ========\n"
+    "\n"
+    "// Hatch pattern types matching Aspect_HatchStyle\n"
+    "// Note: OCCT enum values are non-contiguous, we remap to 0-12\n"
+    "#define HATCH_NONE              0   // Aspect_HS_SOLID\n"
+    "#define HATCH_GRID_DIAGONAL     1   // Aspect_HS_GRID_DIAGONAL (cross hatch)\n"
+    "#define HATCH_GRID_DIAGONAL_WIDE 2  // Aspect_HS_GRID_DIAGONAL_WIDE\n"
+    "#define HATCH_GRID              3   // Aspect_HS_GRID\n"
+    "#define HATCH_GRID_WIDE         4   // Aspect_HS_GRID_WIDE\n"
+    "#define HATCH_DIAGONAL_45       5   // Aspect_HS_DIAGONAL_45\n"
+    "#define HATCH_DIAGONAL_135      6   // Aspect_HS_DIAGONAL_135\n"
+    "#define HATCH_HORIZONTAL        7   // Aspect_HS_HORIZONTAL\n"
+    "#define HATCH_VERTICAL          8   // Aspect_HS_VERTICAL\n"
+    "#define HATCH_DIAGONAL_45_WIDE  9   // Aspect_HS_DIAGONAL_45_WIDE\n"
+    "#define HATCH_DIAGONAL_135_WIDE 10  // Aspect_HS_DIAGONAL_135_WIDE\n"
+    "#define HATCH_HORIZONTAL_WIDE   11  // Aspect_HS_HORIZONTAL_WIDE\n"
+    "#define HATCH_VERTICAL_WIDE     12  // Aspect_HS_VERTICAL_WIDE\n"
+    "\n"
+    "// Hatch uniforms structure\n"
+    "struct HatchUniforms {\n"
+    "  int   hatchType;       // pattern type\n"
+    "  float spacing;         // spacing between lines\n"
+    "  float lineWidth;       // line thickness\n"
+    "  float angle;           // custom rotation\n"
+    "  float2 viewport;       // viewport size\n"
+    "  float2 padding;\n"
+    "};\n"
+    "\n"
+    "// Calculate distance to a line at given angle\n"
+    "// Returns positive distance to nearest line\n"
+    "float hatchLineDist(float2 coord, float angle, float spacing) {\n"
+    "  // Rotate coordinate to align with line angle\n"
+    "  float c = cos(angle);\n"
+    "  float s = sin(angle);\n"
+    "  float rotated = coord.x * c + coord.y * s;\n"
+    "  \n"
+    "  // Distance to nearest line (lines at multiples of spacing)\n"
+    "  return abs(fmod(rotated + spacing * 0.5, spacing) - spacing * 0.5);\n"
+    "}\n"
+    "\n"
+    "// Compute anti-aliased hatch mask for a single line direction\n"
+    "float hatchLineMask(float2 fragCoord, float angle, float spacing, float lineWidth) {\n"
+    "  float dist = hatchLineDist(fragCoord, angle, spacing);\n"
+    "  float feather = 1.0; // anti-aliasing width\n"
+    "  return 1.0 - smoothstep(lineWidth * 0.5 - feather, lineWidth * 0.5 + feather, dist);\n"
+    "}\n"
+    "\n"
+    "// Core hatch pattern function\n"
+    "// Returns mask value: 1.0 = line (discard), 0.0 = fill (keep)\n"
+    "float computeHatchMask(float2 fragCoord, constant HatchUniforms& hatch) {\n"
+    "  if (hatch.hatchType == HATCH_NONE) {\n"
+    "    return 0.0; // no hatching, keep all pixels\n"
+    "  }\n"
+    "  \n"
+    "  float spacing = hatch.spacing;\n"
+    "  float lineWidth = hatch.lineWidth;\n"
+    "  float mask = 0.0;\n"
+    "  \n"
+    "  // Select pattern based on type\n"
+    "  switch (hatch.hatchType) {\n"
+    "    case HATCH_HORIZONTAL:\n"
+    "    case HATCH_HORIZONTAL_WIDE:\n"
+    "      mask = hatchLineMask(fragCoord, 0.0, spacing, lineWidth);\n"
+    "      break;\n"
+    "      \n"
+    "    case HATCH_VERTICAL:\n"
+    "    case HATCH_VERTICAL_WIDE:\n"
+    "      mask = hatchLineMask(fragCoord, M_PI_2_F, spacing, lineWidth);\n"
+    "      break;\n"
+    "      \n"
+    "    case HATCH_DIAGONAL_45:\n"
+    "    case HATCH_DIAGONAL_45_WIDE:\n"
+    "      mask = hatchLineMask(fragCoord, M_PI_4_F, spacing, lineWidth);\n"
+    "      break;\n"
+    "      \n"
+    "    case HATCH_DIAGONAL_135:\n"
+    "    case HATCH_DIAGONAL_135_WIDE:\n"
+    "      mask = hatchLineMask(fragCoord, -M_PI_4_F, spacing, lineWidth);\n"
+    "      break;\n"
+    "      \n"
+    "    case HATCH_GRID:\n"
+    "    case HATCH_GRID_WIDE: {\n"
+    "      // Horizontal + Vertical\n"
+    "      float h = hatchLineMask(fragCoord, 0.0, spacing, lineWidth);\n"
+    "      float v = hatchLineMask(fragCoord, M_PI_2_F, spacing, lineWidth);\n"
+    "      mask = max(h, v);\n"
+    "      break;\n"
+    "    }\n"
+    "      \n"
+    "    case HATCH_GRID_DIAGONAL:\n"
+    "    case HATCH_GRID_DIAGONAL_WIDE: {\n"
+    "      // Diagonal 45 + 135 (cross-hatch)\n"
+    "      float d45 = hatchLineMask(fragCoord, M_PI_4_F, spacing, lineWidth);\n"
+    "      float d135 = hatchLineMask(fragCoord, -M_PI_4_F, spacing, lineWidth);\n"
+    "      mask = max(d45, d135);\n"
+    "      break;\n"
+    "    }\n"
+    "      \n"
+    "    default:\n"
+    "      mask = 0.0;\n"
+    "      break;\n"
+    "  }\n"
+    "  \n"
+    "  return mask;\n"
+    "}\n"
+    "\n"
+    "// Vertex output for hatched geometry\n"
+    "struct VertexOutHatch {\n"
+    "  float4 position [[position]];\n"
+    "  float3 normal;\n"
+    "  float3 viewPosition;\n"
+    "  float4 color;\n"
+    "  float3 worldPosition;\n"
+    "};\n"
+    "\n"
+    "// Vertex shader for hatched surfaces\n"
+    "vertex VertexOutHatch vertex_hatch(\n"
+    "  const device float3* positions [[buffer(0)]],\n"
+    "  const device float3* normals   [[buffer(2)]],\n"
+    "  constant Uniforms& uniforms    [[buffer(1)]],\n"
+    "  uint vid                       [[vertex_id]])\n"
+    "{\n"
+    "  VertexOutHatch out;\n"
+    "  float4 worldPos = float4(positions[vid], 1.0);\n"
+    "  float4 viewPos = uniforms.modelViewMatrix * worldPos;\n"
+    "  out.position = uniforms.projectionMatrix * viewPos;\n"
+    "  out.worldPosition = worldPos.xyz;\n"
+    "  out.viewPosition = viewPos.xyz;\n"
+    "  out.normal = normalize((uniforms.modelViewMatrix * float4(normals[vid], 0.0)).xyz);\n"
+    "  out.color = uniforms.color;\n"
+    "  return out;\n"
+    "}\n"
+    "\n"
+    "// Fragment shader: Hatched surface with Phong lighting\n"
+    "fragment float4 fragment_hatch_phong(\n"
+    "  VertexOutHatch in [[stage_in]],\n"
+    "  constant Uniforms& uniforms       [[buffer(0)]],\n"
+    "  constant LightUniforms& lights    [[buffer(1)]],\n"
+    "  constant HatchUniforms& hatch     [[buffer(2)]])\n"
+    "{\n"
+    "  // Calculate hatch mask in screen space\n"
+    "  float2 fragCoord = in.position.xy;\n"
+    "  float mask = computeHatchMask(fragCoord, hatch);\n"
+    "  \n"
+    "  // Discard hatched pixels (where mask > 0.5)\n"
+    "  if (mask > 0.5) {\n"
+    "    discard_fragment();\n"
+    "  }\n"
+    "  \n"
+    "  // Compute Phong lighting for visible pixels\n"
+    "  float3 N = normalize(in.normal);\n"
+    "  float3 V = normalize(-in.viewPosition);\n"
+    "  \n"
+    "  // Two-sided lighting\n"
+    "  if (dot(N, V) < 0.0) N = -N;\n"
+    "  \n"
+    "  float3 result = lights.AmbientColor.rgb * in.color.rgb;\n"
+    "  for (int i = 0; i < lights.LightCount; i++) {\n"
+    "    result += computePhongLight(lights.Lights[i], N, V, in.viewPosition,\n"
+    "                                in.color.rgb, float3(1.0), 32.0);\n"
+    "  }\n"
+    "  \n"
+    "  // Apply anti-aliasing at edges\n"
+    "  float alpha = in.color.a * (1.0 - mask);\n"
+    "  return float4(saturate(result), alpha);\n"
+    "}\n"
+    "\n"
+    "// Fragment shader: Hatched surface unlit\n"
+    "fragment float4 fragment_hatch_unlit(\n"
+    "  VertexOutHatch in [[stage_in]],\n"
+    "  constant HatchUniforms& hatch [[buffer(0)]])\n"
+    "{\n"
+    "  float2 fragCoord = in.position.xy;\n"
+    "  float mask = computeHatchMask(fragCoord, hatch);\n"
+    "  \n"
+    "  if (mask > 0.5) {\n"
+    "    discard_fragment();\n"
+    "  }\n"
+    "  \n"
+    "  float alpha = in.color.a * (1.0 - mask);\n"
+    "  return float4(in.color.rgb, alpha);\n"
+    "}\n"
+    "\n"
+    "// Fragment shader: Hatched surface with clipping\n"
+    "fragment float4 fragment_hatch_phong_clip(\n"
+    "  VertexOutHatch in [[stage_in]],\n"
+    "  constant Uniforms& uniforms       [[buffer(0)]],\n"
+    "  constant LightUniforms& lights    [[buffer(1)]],\n"
+    "  constant HatchUniforms& hatch     [[buffer(2)]],\n"
+    "  constant ClipUniforms& clip       [[buffer(3)]])\n"
+    "{\n"
+    "  // Apply clipping first\n"
+    "  if (isClipped(in.worldPosition, clip)) discard_fragment();\n"
+    "  \n"
+    "  // Calculate hatch mask\n"
+    "  float2 fragCoord = in.position.xy;\n"
+    "  float mask = computeHatchMask(fragCoord, hatch);\n"
+    "  \n"
+    "  if (mask > 0.5) {\n"
+    "    discard_fragment();\n"
+    "  }\n"
+    "  \n"
+    "  // Compute Phong lighting\n"
+    "  float3 N = normalize(in.normal);\n"
+    "  float3 V = normalize(-in.viewPosition);\n"
+    "  if (dot(N, V) < 0.0) N = -N;\n"
+    "  \n"
+    "  float3 result = lights.AmbientColor.rgb * in.color.rgb;\n"
+    "  for (int i = 0; i < lights.LightCount; i++) {\n"
+    "    result += computePhongLight(lights.Lights[i], N, V, in.viewPosition,\n"
+    "                                in.color.rgb, float3(1.0), 32.0);\n"
+    "  }\n"
+    "  \n"
+    "  float alpha = in.color.a * (1.0 - mask);\n"
+    "  return float4(saturate(result), alpha);\n"
     "}\n";
 
   return aSource;

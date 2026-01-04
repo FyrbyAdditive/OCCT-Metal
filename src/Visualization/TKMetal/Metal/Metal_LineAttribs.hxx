@@ -15,6 +15,7 @@
 #define Metal_LineAttribs_HeaderFile
 
 #include <Aspect_TypeOfLine.hxx>
+#include <Aspect_HatchStyle.hxx>
 #include <Graphic3d_Aspects.hxx>
 
 //! Line rendering attributes for Metal.
@@ -101,39 +102,62 @@ struct Metal_LineAttribs
 
 //! Hatch rendering attributes for Metal.
 //! Manages interior fill style with hatch patterns.
+//! The hatch type values match the Aspect_HatchStyle enum values directly.
 struct Metal_HatchAttribs
 {
-  //! Hatch type.
-  enum HatchType
+  //! Default spacing values for narrow and wide patterns.
+  static constexpr float NarrowSpacing = 8.0f;
+  static constexpr float WideSpacing = 16.0f;
+
+  //! Convert Aspect_HatchStyle to Metal hatch type and spacing.
+  //! The Aspect_HatchStyle enum values are used directly as shader hatch types.
+  static Metal_HatchAttribs FromAspectHatchStyle(Aspect_HatchStyle theStyle)
   {
-    HatchType_None = 0,       //!< solid fill (no hatching)
-    HatchType_Horizontal,     //!< horizontal lines
-    HatchType_Vertical,       //!< vertical lines
-    HatchType_Diagonal45,     //!< diagonal lines at 45 degrees
-    HatchType_Diagonal135,    //!< diagonal lines at 135 degrees
-    HatchType_Grid,           //!< horizontal + vertical grid
-    HatchType_GridDiagonal,   //!< diagonal grid (cross-hatch)
-    HatchType_Custom          //!< custom pattern texture
-  };
+    Metal_HatchAttribs anAttribs;
+    anAttribs.Type = static_cast<int>(theStyle);
+
+    // Set spacing based on pattern (wide patterns have larger spacing)
+    switch (theStyle)
+    {
+      case Aspect_HS_SOLID:
+        anAttribs.Spacing = NarrowSpacing;
+        break;
+      case Aspect_HS_GRID_DIAGONAL_WIDE:
+      case Aspect_HS_GRID_WIDE:
+      case Aspect_HS_DIAGONAL_45_WIDE:
+      case Aspect_HS_DIAGONAL_135_WIDE:
+      case Aspect_HS_HORIZONTAL_WIDE:
+      case Aspect_HS_VERTICAL_WIDE:
+        anAttribs.Spacing = WideSpacing;
+        break;
+      default:
+        anAttribs.Spacing = NarrowSpacing;
+        break;
+    }
+    return anAttribs;
+  }
 
   //! Default constructor with solid fill.
   Metal_HatchAttribs()
-  : Type(HatchType_None),
-    Spacing(8.0f),
+  : Type(0),          // Aspect_HS_SOLID = 0
+    Spacing(NarrowSpacing),
     LineWidth(1.0f),
     Angle(0.0f)
   {}
 
-  //! Constructor with hatch type.
-  Metal_HatchAttribs(HatchType theType, float theSpacing = 8.0f, float theLineWidth = 1.0f)
-  : Type(theType),
-    Spacing(theSpacing),
+  //! Constructor with hatch style.
+  Metal_HatchAttribs(Aspect_HatchStyle theStyle, float theLineWidth = 1.0f)
+  : Type(static_cast<int>(theStyle)),
+    Spacing(NarrowSpacing),
     LineWidth(theLineWidth),
     Angle(0.0f)
-  {}
+  {
+    *this = FromAspectHatchStyle(theStyle);
+    LineWidth = theLineWidth;
+  }
 
   //! Return true if hatching is enabled.
-  bool IsHatched() const { return Type != HatchType_None; }
+  bool IsHatched() const { return Type != static_cast<int>(Aspect_HS_SOLID); }
 
   //! Compare two hatch attributes.
   bool operator==(const Metal_HatchAttribs& theOther) const
@@ -146,10 +170,10 @@ struct Metal_HatchAttribs
 
   bool operator!=(const Metal_HatchAttribs& theOther) const { return !(*this == theOther); }
 
-  HatchType Type;      //!< hatch pattern type
-  float     Spacing;   //!< spacing between hatch lines
-  float     LineWidth; //!< width of hatch lines
-  float     Angle;     //!< custom rotation angle (for custom patterns)
+  int       Type;      //!< hatch pattern type (Aspect_HatchStyle value)
+  float     Spacing;   //!< spacing between hatch lines in pixels
+  float     LineWidth; //!< width of hatch lines in pixels
+  float     Angle;     //!< custom rotation angle in radians
 };
 
 #endif // Metal_LineAttribs_HeaderFile
