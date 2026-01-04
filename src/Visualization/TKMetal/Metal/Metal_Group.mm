@@ -11,6 +11,8 @@
 // Alternatively, this file may be used under the terms of Open CASCADE
 // commercial license or contractual agreement.
 
+#import <Foundation/Foundation.h>
+
 #include <Metal_Group.hxx>
 #include <Metal_Structure.hxx>
 #include <Metal_Context.hxx>
@@ -18,6 +20,7 @@
 #include <Metal_PrimitiveArray.hxx>
 #include <Metal_Text.hxx>
 #include <Aspect_InteriorStyle.hxx>
+#include <Message.hxx>
 #include <gp.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_Group, Graphic3d_Group)
@@ -131,6 +134,8 @@ void Metal_Group::AddPrimitiveArray(const Graphic3d_TypeOfPrimitiveArray theType
   Metal_PrimitiveArray* aPrimArray = new Metal_PrimitiveArray(theType, theIndices,
                                                                theAttribs, theBounds);
   myPrimitives.Append(aPrimArray);
+  Message::SendTrace() << "Metal_Group::AddPrimitiveArray: added primitive type " << (int)theType
+                       << " with " << theAttribs->NbElements << " vertices";
 
   // Update bounding box if requested
   if (theToEvalMinMax)
@@ -226,6 +231,10 @@ void Metal_Group::Render(Metal_Workspace* theWorkspace) const
   if (!myAspect.IsNull())
   {
     theWorkspace->SetAspect(myAspect);
+    // Apply pipeline state for current shading model
+    theWorkspace->ApplyPipelineState();
+    // Apply material uniforms after setting aspect (binds material to shader)
+    theWorkspace->ApplyMaterialUniforms();
   }
 
   // Determine rendering mode from aspect
@@ -258,8 +267,10 @@ void Metal_Group::Render(Metal_Workspace* theWorkspace) const
   Metal_Context* aCtx = theWorkspace->Context();
 
   // First pass: render faces (if enabled)
+  NSLog(@"Metal_Group::Render: aDrawFaces=%d myPrimitives.Size=%d", (int)aDrawFaces, (int)myPrimitives.Size());
   if (aDrawFaces)
   {
+    int aPrimCount = 0;
     for (NCollection_List<Metal_PrimitiveArray*>::Iterator aPrimIter(myPrimitives);
          aPrimIter.More(); aPrimIter.Next())
     {
@@ -272,7 +283,12 @@ void Metal_Group::Render(Metal_Workspace* theWorkspace) const
           aPrimArray->Init(aCtx);
         }
         aPrimArray->Render(theWorkspace);
+        ++aPrimCount;
       }
+    }
+    if (aPrimCount > 0)
+    {
+      NSLog(@"Metal_Group::Render: rendered %d primitives", aPrimCount);
     }
   }
 

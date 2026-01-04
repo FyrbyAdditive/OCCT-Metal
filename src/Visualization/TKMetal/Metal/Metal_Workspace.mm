@@ -11,6 +11,7 @@
 // Alternatively, this file may be used under the terms of Open CASCADE
 // commercial license or contractual agreement.
 
+#import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 
 #include <Metal_Workspace.hxx>
@@ -18,6 +19,7 @@
 #include <Metal_View.hxx>
 #include <Metal_ShaderManager.hxx>
 #include <Metal_Clipping.hxx>
+#include <Metal_Material.hxx>
 #include <Aspect_InteriorStyle.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_Workspace, Standard_Transient)
@@ -81,8 +83,24 @@ void Metal_Workspace::SetAspect(const occ::handle<Graphic3d_Aspects>& theAspect)
 {
   myAspect = theAspect;
 
-  // When aspect changes, we need to update pipeline state
-  // This will be more sophisticated when we have proper shader programs
+  // Extract and set material uniforms from the aspect
+  if (!theAspect.IsNull() && myShaderManager != nullptr)
+  {
+    // Build Metal_Material from Graphic3d_Aspects
+    Metal_Material aMaterial;
+    aMaterial.Init(theAspect);
+
+    // Determine PBR mode and other flags
+    bool aIsPBR = (theAspect->ShadingModel() == Graphic3d_TypeOfShadingModel_Pbr ||
+                   theAspect->ShadingModel() == Graphic3d_TypeOfShadingModel_PbrFacet);
+    bool aToDistinguish = theAspect->Distinguish();
+    float anAlphaCutoff = (theAspect->AlphaMode() == Graphic3d_AlphaMode_MaskBlend ||
+                           theAspect->AlphaMode() == Graphic3d_AlphaMode_Mask)
+                        ? theAspect->AlphaCutoff() : 2.0f; // > 1.0 means disabled
+
+    // Set material uniforms in shader manager
+    myShaderManager->SetMaterialUniforms(aMaterial, anAlphaCutoff, aToDistinguish, aIsPBR);
+  }
 }
 
 // =======================================================================
@@ -96,20 +114,61 @@ void Metal_Workspace::ApplyPipelineState()
     return;
   }
 
-  // Get pipeline from context based on current aspect
-  id<MTLRenderPipelineState> aPipeline = myContext->DefaultPipeline();
-  if (aPipeline != nil && aPipeline != myCurrentPipeline)
+  // Get pipeline based on current aspect's shading model
+  id<MTLRenderPipelineState> aPipeline = nil;
+  id<MTLDepthStencilState> aDepthState = nil;
+
+  if (myShaderManager != nullptr)
   {
-    [myEncoder setRenderPipelineState:aPipeline];
-    myCurrentPipeline = aPipeline;
+    // Determine shading model from aspect
+    Graphic3d_TypeOfShadingModel aShadingModel = Graphic3d_TypeOfShadingModel_Phong;
+    int aShaderFlags = 0;
+
+    if (!myAspect.IsNull())
+    {
+      aShadingModel = myAspect->ShadingModel();
+      // If DEFAULT (-1), use Phong (the viewer's default shading model)
+      if (aShadingModel == Graphic3d_TypeOfShadingModel_DEFAULT)
+      {
+        aShadingModel = Graphic3d_TypeOfShadingModel_Phong;
+      }
+      NSLog(@"Metal_Workspace::ApplyPipelineState: aspect shading model = %d (adjusted)", (int)aShadingModel);
+    }
+
+    // Get the appropriate pipeline from shader manager
+    if (myShaderManager->GetProgram(aShadingModel, aShaderFlags, aPipeline, aDepthState))
+    {
+      NSLog(@"Metal_Workspace::ApplyPipelineState: got pipeline=%p depthState=%p for model %d", aPipeline, aDepthState, (int)aShadingModel);
+      if (aPipeline != nil && aPipeline != myCurrentPipeline)
+      {
+        NSLog(@"Metal_Workspace::ApplyPipelineState: setting pipeline");
+        [myEncoder setRenderPipelineState:aPipeline];
+        myCurrentPipeline = aPipeline;
+      }
+      if (aDepthState != nil && aDepthState != myDepthStencilState)
+      {
+        [myEncoder setDepthStencilState:aDepthState];
+        myDepthStencilState = aDepthState;
+      }
+    }
   }
 
-  // Apply depth-stencil state
-  id<MTLDepthStencilState> aDepthState = myContext->DefaultDepthStencilState();
-  if (aDepthState != nil && aDepthState != myDepthStencilState)
+  // Fallback to default pipeline if shader manager unavailable or failed
+  if (aPipeline == nil)
   {
-    [myEncoder setDepthStencilState:aDepthState];
-    myDepthStencilState = aDepthState;
+    aPipeline = myContext->DefaultPipeline();
+    if (aPipeline != nil && aPipeline != myCurrentPipeline)
+    {
+      [myEncoder setRenderPipelineState:aPipeline];
+      myCurrentPipeline = aPipeline;
+    }
+
+    aDepthState = myContext->DefaultDepthStencilState();
+    if (aDepthState != nil && aDepthState != myDepthStencilState)
+    {
+      [myEncoder setDepthStencilState:aDepthState];
+      myDepthStencilState = aDepthState;
+    }
   }
 
   // Set cull mode based on aspect
@@ -268,6 +327,34 @@ void Metal_Workspace::ApplyClippingUniforms()
     [myEncoder setFragmentBytes:&aClipUniforms
                          length:sizeof(aClipUniforms)
                         atIndex:2];
+  }
+}
+
+// =======================================================================
+// function : ApplyMaterialUniforms
+// purpose  : Apply material uniforms for material-aware shaders
+// =======================================================================
+void Metal_Workspace::ApplyMaterialUniforms()
+{
+  if (myEncoder == nil || myShaderManager == nullptr)
+  {
+    return;
+  }
+
+  const Metal_MaterialUniforms& aMaterialUniforms = myShaderManager->MaterialUniforms();
+
+  // Pass material uniforms to fragment shader at buffer index 2
+  [myEncoder setFragmentBytes:&aMaterialUniforms
+                       length:sizeof(aMaterialUniforms)
+                      atIndex:2];
+
+  // If clipping is active and material shaders are used, bind clipping at index 3
+  const Metal_ClipPlaneUniforms& aClipUniforms = myShaderManager->ClipPlaneUniforms();
+  if (aClipUniforms.PlaneCount > 0)
+  {
+    [myEncoder setFragmentBytes:&aClipUniforms
+                         length:sizeof(aClipUniforms)
+                        atIndex:3];
   }
 }
 

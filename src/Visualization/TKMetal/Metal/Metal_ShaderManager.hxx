@@ -19,6 +19,7 @@
 #include <Graphic3d_TypeOfShadingModel.hxx>
 #include <Graphic3d_ShaderFlags.hxx>
 #include <Graphic3d_SequenceOfHClipPlane.hxx>
+#include <Metal_Material.hxx>
 #include <NCollection_DataMap.hxx>
 #include <NCollection_Mat4.hxx>
 #include <NCollection_Vec4.hxx>
@@ -119,6 +120,78 @@ struct Metal_HatchUniforms
   float    Padding[2];
 };
 
+//! Common (Phong/Blinn) material for shader uniform.
+//! Matches Metal_MaterialCommon layout for direct copy.
+struct Metal_ShaderMaterialCommon
+{
+  float Diffuse[4];           //!< diffuse RGB + alpha
+  float Emission[4];          //!< emission RGB + padding
+  float SpecularShininess[4]; //!< specular RGB + shininess
+  float Ambient[4];           //!< ambient RGB + padding
+};
+
+//! PBR material for shader uniform.
+//! Matches Metal_MaterialPBR layout for direct copy.
+struct Metal_ShaderMaterialPBR
+{
+  float BaseColor[4];    //!< base color RGB + alpha
+  float EmissionIOR[4];  //!< emission RGB + index of refraction
+  float Params[4];       //!< occlusion, roughness, metallic, padding
+};
+
+//! Comprehensive material uniform data for shaders.
+//! Contains both Phong and PBR materials for front and back faces.
+struct Metal_MaterialUniforms
+{
+  // Common (Phong) materials - 8 vec4 total
+  Metal_ShaderMaterialCommon FrontCommon;  //!< front face Phong material
+  Metal_ShaderMaterialCommon BackCommon;   //!< back face Phong material
+
+  // PBR materials - 6 vec4 total
+  Metal_ShaderMaterialPBR FrontPBR;        //!< front face PBR material
+  Metal_ShaderMaterialPBR BackPBR;         //!< back face PBR material
+
+  // Control parameters - 1 vec4
+  int32_t IsPBR;           //!< 0=Phong/Blinn, 1=PBR
+  int32_t ToDistinguish;   //!< distinguish front/back face materials
+  float   AlphaCutoff;     //!< alpha test threshold (>1.0 disables)
+  float   Padding;
+
+  //! Default constructor.
+  Metal_MaterialUniforms()
+  : IsPBR(0),
+    ToDistinguish(0),
+    AlphaCutoff(1.5f),
+    Padding(0.0f)
+  {
+    // Initialize front common material with defaults
+    FrontCommon.Diffuse[0] = 0.8f; FrontCommon.Diffuse[1] = 0.8f;
+    FrontCommon.Diffuse[2] = 0.8f; FrontCommon.Diffuse[3] = 1.0f;
+    FrontCommon.Emission[0] = 0.0f; FrontCommon.Emission[1] = 0.0f;
+    FrontCommon.Emission[2] = 0.0f; FrontCommon.Emission[3] = 0.0f;
+    FrontCommon.SpecularShininess[0] = 1.0f; FrontCommon.SpecularShininess[1] = 1.0f;
+    FrontCommon.SpecularShininess[2] = 1.0f; FrontCommon.SpecularShininess[3] = 32.0f;
+    FrontCommon.Ambient[0] = 0.2f; FrontCommon.Ambient[1] = 0.2f;
+    FrontCommon.Ambient[2] = 0.2f; FrontCommon.Ambient[3] = 1.0f;
+
+    // Copy to back
+    BackCommon = FrontCommon;
+
+    // Initialize front PBR material with defaults
+    FrontPBR.BaseColor[0] = 0.8f; FrontPBR.BaseColor[1] = 0.8f;
+    FrontPBR.BaseColor[2] = 0.8f; FrontPBR.BaseColor[3] = 1.0f;
+    FrontPBR.EmissionIOR[0] = 0.0f; FrontPBR.EmissionIOR[1] = 0.0f;
+    FrontPBR.EmissionIOR[2] = 0.0f; FrontPBR.EmissionIOR[3] = 1.5f;
+    FrontPBR.Params[0] = 1.0f;  // occlusion
+    FrontPBR.Params[1] = 0.5f;  // roughness
+    FrontPBR.Params[2] = 0.0f;  // metallic
+    FrontPBR.Params[3] = 0.0f;  // padding
+
+    // Copy to back
+    BackPBR = FrontPBR;
+  }
+};
+
 //! Shader program configuration key.
 struct Metal_ShaderProgramKey
 {
@@ -207,10 +280,10 @@ public: //! @name Transform state
 
 public: //! @name Material state
 
-  //! Set current material.
+  //! Set current material (legacy simple interface).
   Standard_EXPORT void SetMaterial(const Metal_ShaderMaterial& theMat);
 
-  //! Return current material.
+  //! Return current material (legacy simple interface).
   const Metal_ShaderMaterial& Material() const { return myMaterial; }
 
   //! Set object color (overrides material diffuse).
@@ -221,6 +294,25 @@ public: //! @name Material state
     myObjectColor[2] = theB;
     myObjectColor[3] = theA;
   }
+
+  //! Set comprehensive material uniforms from Metal_Material.
+  //! @param theMaterial front/back material data
+  //! @param theAlphaCutoff alpha test threshold (>1.0 disables)
+  //! @param theToDistinguish distinguish front/back faces
+  //! @param theIsPBR use PBR shading model
+  Standard_EXPORT void SetMaterialUniforms(const Metal_Material& theMaterial,
+                                            float theAlphaCutoff,
+                                            bool theToDistinguish,
+                                            bool theIsPBR);
+
+  //! Return comprehensive material uniforms.
+  const Metal_MaterialUniforms& MaterialUniforms() const { return myMaterialUniforms; }
+
+  //! Return mutable material uniforms.
+  Metal_MaterialUniforms& ChangeMaterialUniforms() { return myMaterialUniforms; }
+
+  //! Return TRUE if using PBR shading model.
+  bool IsPBRMaterial() const { return myMaterialUniforms.IsPBR != 0; }
 
 public: //! @name Lighting state
 
@@ -372,6 +464,7 @@ protected:
 
   // Material and color
   Metal_ShaderMaterial myMaterial;
+  Metal_MaterialUniforms myMaterialUniforms;
   float myObjectColor[4];
 
   // Lighting

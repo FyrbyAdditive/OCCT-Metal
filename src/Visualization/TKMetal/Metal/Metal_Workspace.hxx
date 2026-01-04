@@ -142,6 +142,11 @@ public:
   //! Apply clipping uniforms to encoder.
   Standard_EXPORT void ApplyClippingUniforms();
 
+  //! Apply material uniforms to encoder for material-aware shaders.
+  //! This includes Phong materials with front/back face distinction,
+  //! PBR materials, and alpha cutoff settings.
+  Standard_EXPORT void ApplyMaterialUniforms();
+
   //! Set edge rendering mode.
   void SetEdgeRendering(bool theValue) { myIsEdgeRendering = theValue; }
 

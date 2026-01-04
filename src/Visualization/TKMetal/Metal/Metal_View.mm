@@ -26,6 +26,7 @@
 #include <BVH_LinearBuilder.hxx>
 #include <Graphic3d_Structure.hxx>
 #include <Image_PixMap.hxx>
+#include <Message.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_View, Graphic3d_CView)
 
@@ -272,11 +273,17 @@ void Metal_View::Redraw()
   // Check if we have displayed structures to render
   bool aHasStructures = (NumberOfDisplayedStructures() > 0);
 
+  myContext->Messenger()->SendInfo() << "Metal_View::Redraw: aHasStructures=" << aHasStructures
+                       << " numDisplayed=" << NumberOfDisplayedStructures()
+                       << " numLayers=" << myLayers.Size();
+
   if (aHasStructures && myContext->DefaultPipeline() != nil)
   {
+    myContext->Messenger()->SendInfo() << "Metal_View::Redraw: entering structure rendering path";
     // Create workspace for rendering
     occ::handle<Metal_Workspace> aWorkspace = new Metal_Workspace(myContext.get(), this);
     aWorkspace->SetEncoder(aRenderEncoder);
+    aWorkspace->SetShaderManager(myContext->ShaderManager());
 
     // Set up camera matrices
     if (!myCamera.IsNull())
@@ -583,6 +590,7 @@ void Metal_View::InsertLayerBefore(const Graphic3d_ZLayerId theNewLayerId,
                                    const Graphic3d_ZLayerSettings& theSettings,
                                    const Graphic3d_ZLayerId theLayerAfter)
 {
+  NSLog(@"Metal_View::InsertLayerBefore: layerId=%d", theNewLayerId);
   // Check if layer already exists
   if (myLayerMap.IsBound(theNewLayerId))
   {
@@ -1343,6 +1351,8 @@ void Metal_View::renderStructures(Metal_Workspace* theWorkspace)
 
           // Apply uniforms before rendering
           theWorkspace->ApplyUniforms();
+          theWorkspace->ApplyLightingUniforms();
+          theWorkspace->ApplyMaterialUniforms();
 
           // Render the structure (cast away const as Render is non-const in design)
           const_cast<Metal_Structure*>(aMetalStruct)->Render(theWorkspace);

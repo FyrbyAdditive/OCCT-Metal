@@ -200,6 +200,16 @@ occ::handle<Graphic3d_CView> Metal_GraphicDriver::CreateView(
 {
   occ::handle<Metal_View> aView = new Metal_View(theMgr, this, myCaps, mySharedContext);
   myMapOfView.Add(aView);
+
+  // Copy existing layers from driver to the new view
+  for (NCollection_List<occ::handle<Graphic3d_Layer>>::Iterator aLayerIter(myLayers);
+       aLayerIter.More();
+       aLayerIter.Next())
+  {
+    const occ::handle<Graphic3d_Layer>& aLayer = aLayerIter.Value();
+    aView->InsertLayerAfter(aLayer->LayerId(), aLayer->LayerSettings(), Graphic3d_ZLayerId_UNKNOWN);
+  }
+
   return aView;
 }
 

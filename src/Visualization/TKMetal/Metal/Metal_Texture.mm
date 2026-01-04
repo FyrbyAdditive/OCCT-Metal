@@ -45,8 +45,12 @@ Metal_Texture::Metal_Texture()
 // =======================================================================
 Metal_Texture::~Metal_Texture()
 {
-  Standard_ASSERT_RAISE(myTexture == nil,
-    "Metal_Texture destroyed without explicit Release()");
+  // Release Metal texture if still held.
+  // Under ARC, setting to nil releases the reference.
+  if (myTexture != nil)
+  {
+    myTexture = nil;
+  }
 }
 
 // =======================================================================

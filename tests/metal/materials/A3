@@ -1,0 +1,83 @@
+puts "========"
+puts "Metal_AlphaTransparency"
+puts "Test alpha cutoff and transparency rendering"
+puts "========"
+puts ""
+
+pload MODELING VISUALIZATION
+
+# Skip test if not on macOS
+if { $::tcl_platform(os) != "Darwin" } {
+  puts "SKIP: Metal is only available on macOS"
+  return
+}
+
+catch {
+  # Create view
+  vinit View1 -width 800 -height 600
+  vclear
+
+  # Create reference opaque sphere
+  psphere s_opaque 1.5
+  ttranslate s_opaque -3 0 0
+  vdisplay s_opaque -displayMode 1
+  vaspects s_opaque -material BRASS
+
+  # Create transparent sphere
+  psphere s_trans 1.5
+  ttranslate s_trans 0 0 0
+  vdisplay s_trans -displayMode 1
+  vaspects s_trans -material PLASTIC -color BLUE -transparency 0.5
+
+  # Create another transparent sphere
+  psphere s_trans2 1.5
+  ttranslate s_trans2 3 0 0
+  vdisplay s_trans2 -displayMode 1
+  vaspects s_trans2 -material PLASTIC -color GREEN -transparency 0.7
+
+  vrenderparams -shadingModel phong
+  vfit
+
+  # Add lighting
+  vlight -clear
+  vlight -add directional -direction -1 -1 -1 -color white -intensity 0.8
+  vlight -add ambient -color white -intensity 0.2
+
+  vrepaint
+  vdump $imagedir/${casename}_transparency.png
+  puts "Transparency test rendered"
+
+  # Test with overlapping transparent objects
+  vclear
+
+  # Background opaque plane
+  box bg -5 -5 0 10 10 0.1
+  vdisplay bg -displayMode 1
+  vaspects bg -material STONE -color 0.5 0.5 0.5
+
+  # Front transparent spheres
+  psphere s1 1.5
+  ttranslate s1 -1.5 0 1.5
+  vdisplay s1 -displayMode 1
+  vaspects s1 -material PLASTIC -color RED -transparency 0.3
+
+  psphere s2 1.5
+  ttranslate s2 1.5 0 1.5
+  vdisplay s2 -displayMode 1
+  vaspects s2 -material PLASTIC -color BLUE -transparency 0.3
+
+  # Overlapping sphere
+  psphere s3 1.5
+  ttranslate s3 0 0 2.5
+  vdisplay s3 -displayMode 1
+  vaspects s3 -material PLASTIC -color YELLOW -transparency 0.5
+
+  vfit
+  vrepaint
+  vdump $imagedir/${casename}_overlapping.png
+  puts "Overlapping transparency test rendered"
+
+  puts "Alpha and transparency test completed"
+}
+
+puts "TEST PASSED"

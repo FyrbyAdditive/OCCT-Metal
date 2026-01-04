@@ -11,6 +11,8 @@
 // Alternatively, this file may be used under the terms of Open CASCADE
 // commercial license or contractual agreement.
 
+#import <Foundation/Foundation.h>
+
 #include <Metal_Structure.hxx>
 #include <Metal_Group.hxx>
 #include <Metal_GraphicDriver.hxx>
@@ -19,6 +21,7 @@
 
 #include <Graphic3d_GraphicDriver.hxx>
 #include <Graphic3d_StructureManager.hxx>
+#include <Message.hxx>
 
 IMPLEMENT_STANDARD_RTTIEXT(Metal_Structure, Graphic3d_CStructure)
 
@@ -244,6 +247,7 @@ void Metal_Structure::Release(Metal_Context* theCtx)
 // =======================================================================
 void Metal_Structure::Render(Metal_Workspace* theWorkspace) const
 {
+  NSLog(@"Metal_Structure::Render called, visible=%d numGroups=%d", (int)visible, (int)myGroups.Size());
   if (!visible)
   {
     return;
@@ -269,6 +273,7 @@ void Metal_Structure::renderGeometry(Metal_Workspace* theWorkspace,
 {
   theHasClosed = false;
 
+  int aGroupCount = 0;
   for (GroupIterator aGroupIter(myGroups); aGroupIter.More(); aGroupIter.Next())
   {
     const Metal_Group* aGroup = aGroupIter.Value();
@@ -279,7 +284,12 @@ void Metal_Structure::renderGeometry(Metal_Workspace* theWorkspace,
         theHasClosed = true;
       }
       aGroup->Render(theWorkspace);
+      ++aGroupCount;
     }
+  }
+  if (aGroupCount > 0)
+  {
+    Message::SendTrace() << "Metal_Structure::renderGeometry: rendered " << aGroupCount << " groups";
   }
 }
 

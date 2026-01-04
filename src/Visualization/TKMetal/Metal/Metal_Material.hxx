@@ -14,6 +14,7 @@
 #ifndef Metal_Material_HeaderFile
 #define Metal_Material_HeaderFile
 
+#include <Graphic3d_Aspects.hxx>
 #include <Graphic3d_MaterialAspect.hxx>
 #include <NCollection_Vec3.hxx>
 #include <NCollection_Vec4.hxx>
@@ -139,6 +140,11 @@ struct Metal_Material
                             const Graphic3d_MaterialAspect& theMat,
                             const Quantity_Color& theColor,
                             int theIndex);
+
+  //! Initialize material from Graphic3d_Aspects handle.
+  //! Convenience method that extracts front/back materials and colors.
+  //! @param theAspect the aspects to extract material from
+  Standard_EXPORT void Init(const occ::handle<Graphic3d_Aspects>& theAspect);
 
   //! Check equality with another material.
   bool IsEqual(const Metal_Material& theOther) const

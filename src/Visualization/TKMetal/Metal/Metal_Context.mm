@@ -18,6 +18,7 @@
 
 // Now include OCCT headers
 #include <Metal_Context.hxx>
+#include <Metal_ShaderManager.hxx>
 #include <Message.hxx>
 #include <Standard_Assert.hxx>
 
@@ -146,6 +147,11 @@ void Metal_Context::forcedRelease()
   myDefaultLibrary = nil;
   myCommandQueue = nil;
   myDevice = nil;
+
+  // Delete shader manager
+  delete myShaderManager;
+  myShaderManager = nullptr;
+
   myIsInitialized = false;
 }
 
@@ -239,6 +245,9 @@ bool Metal_Context::Init(bool thePreferLowPower)
     myIsInitialized = true;
 
     myMsgContext->SendInfo() << "Metal_Context: Initialized with device '" << myDeviceName << "'";
+
+    // Create shader manager for advanced shader support
+    myShaderManager = new Metal_ShaderManager(this);
 
     return true;
   }

@@ -11,6 +11,7 @@
 // Alternatively, this file may be used under the terms of Open CASCADE
 // commercial license or contractual agreement.
 
+#import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 
 #include <Metal_PrimitiveArray.hxx>
@@ -426,40 +427,51 @@ void Metal_PrimitiveArray::Render(Metal_Workspace* theWorkspace) const
     return;
   }
 
-  // Bind vertex buffers
-  int aBufferIdx = 0;
+  // Bind vertex buffers at fixed indices matching shader expectations:
+  // - buffer(0): positions
+  // - buffer(1): uniforms (set elsewhere)
+  // - buffer(2): normals
+  // - buffer(3): lights (set elsewhere)
+  // - buffer(4): colors (if present)
+  // - buffer(5): texcoords (if present)
   if (!myPositionVbo.IsNull() && myPositionVbo->IsValid())
   {
     [anEncoder setVertexBuffer:myPositionVbo->Buffer()
                         offset:0
-                       atIndex:aBufferIdx++];
+                       atIndex:0];  // positions at index 0
   }
   if (!myNormalVbo.IsNull() && myNormalVbo->IsValid())
   {
     [anEncoder setVertexBuffer:myNormalVbo->Buffer()
                         offset:0
-                       atIndex:aBufferIdx++];
+                       atIndex:2];  // normals at index 2
   }
   if (!myColorVbo.IsNull() && myColorVbo->IsValid())
   {
     [anEncoder setVertexBuffer:myColorVbo->Buffer()
                         offset:0
-                       atIndex:aBufferIdx++];
+                       atIndex:4];  // colors at index 4
   }
   if (!myTexCoordVbo.IsNull() && myTexCoordVbo->IsValid())
   {
     [anEncoder setVertexBuffer:myTexCoordVbo->Buffer()
                         offset:0
-                       atIndex:aBufferIdx++];
+                       atIndex:5];  // texcoords at index 5
   }
 
   // Draw
   MTLPrimitiveType aPrimType = MetalPrimitiveType();
 
+  NSLog(@"Metal_PrimitiveArray::Render: type=%d nbVerts=%d nbIndices=%d positionVbo=%p indexBuffer=%p",
+        (int)myType, myNbVertices, myNbIndices,
+        myPositionVbo.IsNull() ? nil : myPositionVbo->Buffer(),
+        myIndexBuffer.IsNull() ? nil : myIndexBuffer->Buffer());
+
   // For triangle fans, use the converted triangle list buffer if available
   if (myType == Graphic3d_TOPA_TRIANGLEFANS &&
       !myConvertedFanBuffer.IsNull() && myConvertedFanBuffer->IsValid())
   {
+    NSLog(@"Metal_PrimitiveArray::Render: drawing triangle fan converted to triangles, %d indices", myNbFanTriIndices);
     [anEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                           indexCount:static_cast<NSUInteger>(myNbFanTriIndices)
                            indexType:MTLIndexTypeUInt32
@@ -470,6 +482,7 @@ void Metal_PrimitiveArray::Render(Metal_Workspace* theWorkspace) const
   {
     // Indexed drawing
     MTLIndexType anIndexType = myIndexBuffer->MetalIndexType();
+    NSLog(@"Metal_PrimitiveArray::Render: indexed draw, %d indices, type=%d", myNbIndices, (int)aPrimType);
     [anEncoder drawIndexedPrimitives:aPrimType
                           indexCount:static_cast<NSUInteger>(myNbIndices)
                            indexType:anIndexType
@@ -479,6 +492,7 @@ void Metal_PrimitiveArray::Render(Metal_Workspace* theWorkspace) const
   else
   {
     // Non-indexed drawing
+    NSLog(@"Metal_PrimitiveArray::Render: non-indexed draw, %d vertices, type=%d", myNbVertices, (int)aPrimType);
     [anEncoder drawPrimitives:aPrimType
                   vertexStart:0
                   vertexCount:static_cast<NSUInteger>(myNbVertices)];
@@ -511,31 +525,30 @@ void Metal_PrimitiveArray::RenderInstanced(Metal_Workspace* theWorkspace,
     return;
   }
 
-  // Bind vertex buffers
-  int aBufferIdx = 0;
+  // Bind vertex buffers at fixed indices matching shader expectations
   if (!myPositionVbo.IsNull() && myPositionVbo->IsValid())
   {
     [anEncoder setVertexBuffer:myPositionVbo->Buffer()
                         offset:0
-                       atIndex:aBufferIdx++];
+                       atIndex:0];  // positions at index 0
   }
   if (!myNormalVbo.IsNull() && myNormalVbo->IsValid())
   {
     [anEncoder setVertexBuffer:myNormalVbo->Buffer()
                         offset:0
-                       atIndex:aBufferIdx++];
+                       atIndex:2];  // normals at index 2
   }
   if (!myColorVbo.IsNull() && myColorVbo->IsValid())
   {
     [anEncoder setVertexBuffer:myColorVbo->Buffer()
                         offset:0
-                       atIndex:aBufferIdx++];
+                       atIndex:4];  // colors at index 4
   }
   if (!myTexCoordVbo.IsNull() && myTexCoordVbo->IsValid())
   {
     [anEncoder setVertexBuffer:myTexCoordVbo->Buffer()
                         offset:0
-                       atIndex:aBufferIdx++];
+                       atIndex:5];  // texcoords at index 5
   }
 
   // Bind instance buffer at specified index

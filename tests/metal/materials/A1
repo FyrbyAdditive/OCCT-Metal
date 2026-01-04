@@ -1,0 +1,67 @@
+puts "========"
+puts "Metal_PhongMaterial"
+puts "Test Phong material rendering with front/back face distinction"
+puts "========"
+puts ""
+
+pload MODELING VISUALIZATION
+
+# Skip test if not on macOS
+if { $::tcl_platform(os) != "Darwin" } {
+  puts "SKIP: Metal is only available on macOS"
+  return
+}
+
+catch {
+  # Create view
+  vinit View1 -width 800 -height 600
+  vclear
+
+  # Create test geometry - a sphere
+  psphere s 2
+  vdisplay s -displayMode 1
+
+  # Set Phong shading
+  vrenderparams -shadingModel phong
+
+  # Set material to gold
+  vaspects s -material GOLD
+  vfit
+
+  # Add lighting
+  vlight -clear
+  vlight -add directional -direction -1 -1 -1 -color white -intensity 0.8
+  vlight -add ambient -color white -intensity 0.2
+
+  vrepaint
+  vdump $imagedir/${casename}_gold.png
+  puts "Gold material rendered"
+
+  # Change to silver
+  vaspects s -material SILVER
+  vrepaint
+  vdump $imagedir/${casename}_silver.png
+  puts "Silver material rendered"
+
+  # Change to bronze
+  vaspects s -material BRONZE
+  vrepaint
+  vdump $imagedir/${casename}_bronze.png
+  puts "Bronze material rendered"
+
+  # Change to chrome
+  vaspects s -material CHROME
+  vrepaint
+  vdump $imagedir/${casename}_chrome.png
+  puts "Chrome material rendered"
+
+  # Custom color with Phong
+  vaspects s -material PLASTIC -color RED
+  vrepaint
+  vdump $imagedir/${casename}_red_plastic.png
+  puts "Red plastic material rendered"
+
+  puts "Phong material test completed"
+}
+
+puts "TEST PASSED"

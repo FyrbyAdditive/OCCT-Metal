@@ -114,6 +114,89 @@ void Metal_ShaderManager::SetMaterial(const Metal_ShaderMaterial& theMat)
 }
 
 // =======================================================================
+// function : SetMaterialUniforms
+// purpose  : Set comprehensive material uniforms from Metal_Material
+// =======================================================================
+void Metal_ShaderManager::SetMaterialUniforms(const Metal_Material& theMaterial,
+                                               float theAlphaCutoff,
+                                               bool theToDistinguish,
+                                               bool theIsPBR)
+{
+  // Copy front common material
+  const Metal_MaterialCommon& aFrontCommon = theMaterial.Common[0];
+  myMaterialUniforms.FrontCommon.Diffuse[0] = aFrontCommon.Diffuse.r();
+  myMaterialUniforms.FrontCommon.Diffuse[1] = aFrontCommon.Diffuse.g();
+  myMaterialUniforms.FrontCommon.Diffuse[2] = aFrontCommon.Diffuse.b();
+  myMaterialUniforms.FrontCommon.Diffuse[3] = aFrontCommon.Diffuse.a();
+  myMaterialUniforms.FrontCommon.Emission[0] = aFrontCommon.Emission.r();
+  myMaterialUniforms.FrontCommon.Emission[1] = aFrontCommon.Emission.g();
+  myMaterialUniforms.FrontCommon.Emission[2] = aFrontCommon.Emission.b();
+  myMaterialUniforms.FrontCommon.Emission[3] = aFrontCommon.Emission.a();
+  myMaterialUniforms.FrontCommon.SpecularShininess[0] = aFrontCommon.SpecularShininess.r();
+  myMaterialUniforms.FrontCommon.SpecularShininess[1] = aFrontCommon.SpecularShininess.g();
+  myMaterialUniforms.FrontCommon.SpecularShininess[2] = aFrontCommon.SpecularShininess.b();
+  myMaterialUniforms.FrontCommon.SpecularShininess[3] = aFrontCommon.SpecularShininess.a();
+  myMaterialUniforms.FrontCommon.Ambient[0] = aFrontCommon.Ambient.r();
+  myMaterialUniforms.FrontCommon.Ambient[1] = aFrontCommon.Ambient.g();
+  myMaterialUniforms.FrontCommon.Ambient[2] = aFrontCommon.Ambient.b();
+  myMaterialUniforms.FrontCommon.Ambient[3] = aFrontCommon.Ambient.a();
+
+  // Copy back common material
+  const Metal_MaterialCommon& aBackCommon = theMaterial.Common[1];
+  myMaterialUniforms.BackCommon.Diffuse[0] = aBackCommon.Diffuse.r();
+  myMaterialUniforms.BackCommon.Diffuse[1] = aBackCommon.Diffuse.g();
+  myMaterialUniforms.BackCommon.Diffuse[2] = aBackCommon.Diffuse.b();
+  myMaterialUniforms.BackCommon.Diffuse[3] = aBackCommon.Diffuse.a();
+  myMaterialUniforms.BackCommon.Emission[0] = aBackCommon.Emission.r();
+  myMaterialUniforms.BackCommon.Emission[1] = aBackCommon.Emission.g();
+  myMaterialUniforms.BackCommon.Emission[2] = aBackCommon.Emission.b();
+  myMaterialUniforms.BackCommon.Emission[3] = aBackCommon.Emission.a();
+  myMaterialUniforms.BackCommon.SpecularShininess[0] = aBackCommon.SpecularShininess.r();
+  myMaterialUniforms.BackCommon.SpecularShininess[1] = aBackCommon.SpecularShininess.g();
+  myMaterialUniforms.BackCommon.SpecularShininess[2] = aBackCommon.SpecularShininess.b();
+  myMaterialUniforms.BackCommon.SpecularShininess[3] = aBackCommon.SpecularShininess.a();
+  myMaterialUniforms.BackCommon.Ambient[0] = aBackCommon.Ambient.r();
+  myMaterialUniforms.BackCommon.Ambient[1] = aBackCommon.Ambient.g();
+  myMaterialUniforms.BackCommon.Ambient[2] = aBackCommon.Ambient.b();
+  myMaterialUniforms.BackCommon.Ambient[3] = aBackCommon.Ambient.a();
+
+  // Copy front PBR material
+  const Metal_MaterialPBR& aFrontPBR = theMaterial.Pbr[0];
+  myMaterialUniforms.FrontPBR.BaseColor[0] = aFrontPBR.BaseColor.r();
+  myMaterialUniforms.FrontPBR.BaseColor[1] = aFrontPBR.BaseColor.g();
+  myMaterialUniforms.FrontPBR.BaseColor[2] = aFrontPBR.BaseColor.b();
+  myMaterialUniforms.FrontPBR.BaseColor[3] = aFrontPBR.BaseColor.a();
+  myMaterialUniforms.FrontPBR.EmissionIOR[0] = aFrontPBR.EmissionIOR.r();
+  myMaterialUniforms.FrontPBR.EmissionIOR[1] = aFrontPBR.EmissionIOR.g();
+  myMaterialUniforms.FrontPBR.EmissionIOR[2] = aFrontPBR.EmissionIOR.b();
+  myMaterialUniforms.FrontPBR.EmissionIOR[3] = aFrontPBR.EmissionIOR.a();
+  myMaterialUniforms.FrontPBR.Params[0] = aFrontPBR.Params.r();
+  myMaterialUniforms.FrontPBR.Params[1] = aFrontPBR.Params.g();
+  myMaterialUniforms.FrontPBR.Params[2] = aFrontPBR.Params.b();
+  myMaterialUniforms.FrontPBR.Params[3] = aFrontPBR.Params.a();
+
+  // Copy back PBR material
+  const Metal_MaterialPBR& aBackPBR = theMaterial.Pbr[1];
+  myMaterialUniforms.BackPBR.BaseColor[0] = aBackPBR.BaseColor.r();
+  myMaterialUniforms.BackPBR.BaseColor[1] = aBackPBR.BaseColor.g();
+  myMaterialUniforms.BackPBR.BaseColor[2] = aBackPBR.BaseColor.b();
+  myMaterialUniforms.BackPBR.BaseColor[3] = aBackPBR.BaseColor.a();
+  myMaterialUniforms.BackPBR.EmissionIOR[0] = aBackPBR.EmissionIOR.r();
+  myMaterialUniforms.BackPBR.EmissionIOR[1] = aBackPBR.EmissionIOR.g();
+  myMaterialUniforms.BackPBR.EmissionIOR[2] = aBackPBR.EmissionIOR.b();
+  myMaterialUniforms.BackPBR.EmissionIOR[3] = aBackPBR.EmissionIOR.a();
+  myMaterialUniforms.BackPBR.Params[0] = aBackPBR.Params.r();
+  myMaterialUniforms.BackPBR.Params[1] = aBackPBR.Params.g();
+  myMaterialUniforms.BackPBR.Params[2] = aBackPBR.Params.b();
+  myMaterialUniforms.BackPBR.Params[3] = aBackPBR.Params.a();
+
+  // Set control parameters
+  myMaterialUniforms.IsPBR = theIsPBR ? 1 : 0;
+  myMaterialUniforms.ToDistinguish = theToDistinguish ? 1 : 0;
+  myMaterialUniforms.AlphaCutoff = theAlphaCutoff;
+}
+
+// =======================================================================
 // function : UpdateLightSources
 // purpose  : Update light sources from Graphic3d light set
 // =======================================================================
@@ -267,13 +350,24 @@ bool Metal_ShaderManager::GetProgram(Graphic3d_TypeOfShadingModel theModel,
     // Get depth-stencil state (same for all pipelines for now)
     if (!myDepthStencilCache.Find(0, theDepthStencil))
     {
+      myContext->Messenger()->SendInfo() << "Metal_ShaderManager::GetProgram: depth-stencil not found in cache";
       return false;
     }
     return true;
   }
 
   // Create new pipeline
-  return createPipeline(theModel, theBits, thePipeline, theDepthStencil);
+  myContext->Messenger()->SendInfo() << "Metal_ShaderManager::GetProgram: creating new pipeline for model " << (int)theModel << " bits " << theBits;
+  bool aResult = createPipeline(theModel, theBits, thePipeline, theDepthStencil);
+  if (aResult)
+  {
+    myContext->Messenger()->SendInfo() << "Metal_ShaderManager::GetProgram: pipeline created successfully";
+  }
+  else
+  {
+    myContext->Messenger()->SendFail() << "Metal_ShaderManager::GetProgram: pipeline creation failed";
+  }
+  return aResult;
 }
 
 // =======================================================================
@@ -297,14 +391,12 @@ Graphic3d_TypeOfShadingModel Metal_ShaderManager::ChooseFaceShadingModel(
     case Graphic3d_TypeOfShadingModel_Phong:
       return theHasNodalNormals ? aModel : Graphic3d_TypeOfShadingModel_PhongFacet;
     case Graphic3d_TypeOfShadingModel_Pbr:
+      // PBR shading with per-vertex normals
+      return theHasNodalNormals ? Graphic3d_TypeOfShadingModel_Pbr
+                                : Graphic3d_TypeOfShadingModel_PbrFacet;
     case Graphic3d_TypeOfShadingModel_PbrFacet:
-      // PBR shading requires:
-      // - Metallic/roughness material uniforms
-      // - IBL (Image-Based Lighting) environment maps
-      // - Fresnel/GGX BRDF calculations in shader
-      // Currently falls back to Phong until PBR shaders are implemented.
-      return theHasNodalNormals ? Graphic3d_TypeOfShadingModel_Phong
-                                : Graphic3d_TypeOfShadingModel_PhongFacet;
+      // PBR facet shading (no per-vertex normals required)
+      return Graphic3d_TypeOfShadingModel_PbrFacet;
   }
   return Graphic3d_TypeOfShadingModel_Unlit;
 }
@@ -331,8 +423,8 @@ Graphic3d_TypeOfShadingModel Metal_ShaderManager::ChooseLineShadingModel(
       return theHasNodalNormals ? aModel : Graphic3d_TypeOfShadingModel_Unlit;
     case Graphic3d_TypeOfShadingModel_Pbr:
     case Graphic3d_TypeOfShadingModel_PbrFacet:
-      // PBR line shading not implemented - fall back to Phong/Unlit
-      return theHasNodalNormals ? Graphic3d_TypeOfShadingModel_Phong
+      // PBR line shading - use PBR with normals, or unlit
+      return theHasNodalNormals ? Graphic3d_TypeOfShadingModel_Pbr
                                 : Graphic3d_TypeOfShadingModel_Unlit;
   }
   return Graphic3d_TypeOfShadingModel_Unlit;
@@ -439,8 +531,15 @@ bool Metal_ShaderManager::createPipeline(Graphic3d_TypeOfShadingModel theModel,
                                           id<MTLRenderPipelineState>& thePipeline,
                                           id<MTLDepthStencilState>& theDepthStencil)
 {
-  if (myContext == nullptr || myShaderLibrary == nil)
+  if (myContext == nullptr)
   {
+    NSLog(@"Metal_ShaderManager::createPipeline: context is nil");
+    return false;
+  }
+  if (myShaderLibrary == nil)
+  {
+    NSLog(@"Metal_ShaderManager::createPipeline: shader library is nil");
+    myContext->Messenger()->SendFail() << "Metal_ShaderManager::createPipeline: shader library is nil";
     return false;
   }
 
@@ -487,23 +586,33 @@ bool Metal_ShaderManager::createPipeline(Graphic3d_TypeOfShadingModel theModel,
           aVertexFunc = @"vertex_gouraud";
           aFragmentFunc = hasClipping ? @"fragment_gouraud_clip" : @"fragment_gouraud";
           break;
+        case Graphic3d_TypeOfShadingModel_Pbr:
+        case Graphic3d_TypeOfShadingModel_PbrFacet:
+          // PBR shading with Cook-Torrance BRDF
+          aVertexFunc = @"vertex_phong";  // reuse Phong vertex shader (provides normals and positions)
+          aFragmentFunc = hasClipping ? @"fragment_pbr_clip" : @"fragment_pbr";
+          break;
         case Graphic3d_TypeOfShadingModel_Phong:
         case Graphic3d_TypeOfShadingModel_PhongFacet:
         default:
+          // Always use material-aware Phong shader for proper shading
           aVertexFunc = @"vertex_phong";
-          aFragmentFunc = hasClipping ? @"fragment_phong_clip" : @"fragment_phong";
+          aFragmentFunc = hasClipping ? @"fragment_phong_material_clip" : @"fragment_phong_material";
           break;
       }
     }
 
+    NSLog(@"Metal_ShaderManager::createPipeline: looking for vertex=%@ fragment=%@", aVertexFunc, aFragmentFunc);
     id<MTLFunction> aVertex = [myShaderLibrary newFunctionWithName:aVertexFunc];
     id<MTLFunction> aFragment = [myShaderLibrary newFunctionWithName:aFragmentFunc];
 
     if (aVertex == nil || aFragment == nil)
     {
+      NSLog(@"Metal_ShaderManager::createPipeline: vertex=%p fragment=%p", aVertex, aFragment);
       myContext->Messenger()->SendFail() << "Metal_ShaderManager: Failed to find shader functions";
       return false;
     }
+    NSLog(@"Metal_ShaderManager::createPipeline: functions found, creating pipeline");
 
     // Create pipeline descriptor
     MTLRenderPipelineDescriptor* aPipelineDesc = [[MTLRenderPipelineDescriptor alloc] init];
@@ -583,7 +692,7 @@ TCollection_AsciiString Metal_ShaderManager::generateShaderSource() const
     "  float4 Parameters; // cos(cutoff), exponent, type, enabled\n"
     "};\n"
     "\n"
-    "// Material structure\n"
+    "// Legacy material structure\n"
     "struct Material {\n"
     "  float4 Ambient;\n"
     "  float4 Diffuse;\n"
@@ -592,6 +701,33 @@ TCollection_AsciiString Metal_ShaderManager::generateShaderSource() const
     "  float Shininess;\n"
     "  float Transparency;\n"
     "  float2 padding;\n"
+    "};\n"
+    "\n"
+    "// Common (Phong/Blinn) material - matches Metal_ShaderMaterialCommon\n"
+    "struct MaterialCommon {\n"
+    "  float4 Diffuse;           // RGB + alpha\n"
+    "  float4 Emission;          // RGB + padding\n"
+    "  float4 SpecularShininess; // RGB + shininess\n"
+    "  float4 Ambient;           // RGB + padding\n"
+    "};\n"
+    "\n"
+    "// PBR material - matches Metal_ShaderMaterialPBR\n"
+    "struct MaterialPBR {\n"
+    "  float4 BaseColor;    // RGB + alpha\n"
+    "  float4 EmissionIOR;  // RGB + IOR\n"
+    "  float4 Params;       // occlusion, roughness, metallic, padding\n"
+    "};\n"
+    "\n"
+    "// Comprehensive material uniforms - matches Metal_MaterialUniforms\n"
+    "struct MaterialUniforms {\n"
+    "  MaterialCommon FrontCommon;\n"
+    "  MaterialCommon BackCommon;\n"
+    "  MaterialPBR FrontPBR;\n"
+    "  MaterialPBR BackPBR;\n"
+    "  int IsPBR;\n"
+    "  int ToDistinguish;\n"
+    "  float AlphaCutoff;\n"
+    "  float Padding;\n"
     "};\n"
     "\n"
     "// Frame uniforms (per-frame data)\n"
@@ -718,12 +854,13 @@ TCollection_AsciiString Metal_ShaderManager::generateShaderSource() const
     "// ======== UNLIT SHADERS ========\n"
     "\n"
     "vertex VertexOutUnlit vertex_unlit(\n"
-    "  const device float3* positions [[buffer(0)]],\n"
+    "  const device packed_float3* positions [[buffer(0)]],\n"
     "  constant Uniforms& uniforms    [[buffer(1)]],\n"
     "  uint vid                       [[vertex_id]])\n"
     "{\n"
     "  VertexOutUnlit out;\n"
-    "  float4 worldPos = float4(positions[vid], 1.0);\n"
+    "  float3 pos = float3(positions[vid]);\n"
+    "  float4 worldPos = float4(pos, 1.0);\n"
     "  float4 viewPos = uniforms.modelViewMatrix * worldPos;\n"
     "  out.position = uniforms.projectionMatrix * viewPos;\n"
     "  out.worldPosition = worldPos.xyz;\n"
@@ -747,20 +884,22 @@ TCollection_AsciiString Metal_ShaderManager::generateShaderSource() const
     "// ======== GOURAUD SHADERS ========\n"
     "\n"
     "vertex VertexOutGouraud vertex_gouraud(\n"
-    "  const device float3* positions [[buffer(0)]],\n"
-    "  const device float3* normals   [[buffer(2)]],\n"
+    "  const device packed_float3* positions [[buffer(0)]],\n"
+    "  const device packed_float3* normals   [[buffer(2)]],\n"
     "  constant Uniforms& uniforms    [[buffer(1)]],\n"
     "  constant LightUniforms& lights [[buffer(3)]],\n"
     "  uint vid                       [[vertex_id]])\n"
     "{\n"
     "  VertexOutGouraud out;\n"
-    "  float4 worldPos = float4(positions[vid], 1.0);\n"
+    "  float3 pos = float3(positions[vid]);\n"
+    "  float3 norm = float3(normals[vid]);\n"
+    "  float4 worldPos = float4(pos, 1.0);\n"
     "  float4 viewPos = uniforms.modelViewMatrix * worldPos;\n"
     "  out.position = uniforms.projectionMatrix * viewPos;\n"
     "  out.worldPosition = worldPos.xyz;\n"
     "  \n"
     "  // Transform normal (simplified - should use inverse transpose)\n"
-    "  float3 N = normalize((uniforms.modelViewMatrix * float4(normals[vid], 0.0)).xyz);\n"
+    "  float3 N = normalize((uniforms.modelViewMatrix * float4(norm, 0.0)).xyz);\n"
     "  float3 V = normalize(-viewPos.xyz);\n"
     "  \n"
     "  // Compute lighting at vertex\n"
@@ -789,20 +928,22 @@ TCollection_AsciiString Metal_ShaderManager::generateShaderSource() const
     "// ======== PHONG SHADERS ========\n"
     "\n"
     "vertex VertexOutPhong vertex_phong(\n"
-    "  const device float3* positions [[buffer(0)]],\n"
-    "  const device float3* normals   [[buffer(2)]],\n"
+    "  const device packed_float3* positions [[buffer(0)]],\n"
+    "  const device packed_float3* normals   [[buffer(2)]],\n"
     "  constant Uniforms& uniforms    [[buffer(1)]],\n"
     "  uint vid                       [[vertex_id]])\n"
     "{\n"
     "  VertexOutPhong out;\n"
-    "  float4 worldPos = float4(positions[vid], 1.0);\n"
+    "  float3 pos = float3(positions[vid]);\n"
+    "  float3 norm = float3(normals[vid]);\n"
+    "  float4 worldPos = float4(pos, 1.0);\n"
     "  float4 viewPos = uniforms.modelViewMatrix * worldPos;\n"
     "  out.position = uniforms.projectionMatrix * viewPos;\n"
     "  out.worldPosition = worldPos.xyz;\n"
     "  out.viewPosition = viewPos.xyz;\n"
     "  \n"
     "  // Transform normal\n"
-    "  out.normal = normalize((uniforms.modelViewMatrix * float4(normals[vid], 0.0)).xyz);\n"
+    "  out.normal = normalize((uniforms.modelViewMatrix * float4(norm, 0.0)).xyz);\n"
     "  out.color = uniforms.color;\n"
     "  return out;\n"
     "}\n"
@@ -847,6 +988,310 @@ TCollection_AsciiString Metal_ShaderManager::generateShaderSource() const
     "  return float4(saturate(result), in.color.a);\n"
     "}\n"
     "\n"
+    "// ======== MATERIAL-AWARE PHONG SHADERS ========\n"
+    "\n"
+    "// Phong fragment shader with full material support\n"
+    "fragment float4 fragment_phong_material(\n"
+    "  VertexOutPhong in [[stage_in]],\n"
+    "  constant Uniforms& uniforms         [[buffer(0)]],\n"
+    "  constant LightUniforms& lights      [[buffer(1)]],\n"
+    "  constant MaterialUniforms& material [[buffer(2)]],\n"
+    "  bool isFrontFace [[front_facing]])\n"
+    "{\n"
+    "  // Select material based on face orientation\n"
+    "  MaterialCommon mat = (isFrontFace || material.ToDistinguish == 0)\n"
+    "                       ? material.FrontCommon : material.BackCommon;\n"
+    "  \n"
+    "  float3 N = normalize(in.normal);\n"
+    "  float3 V = normalize(-in.viewPosition);\n"
+    "  \n"
+    "  // Flip normal for back faces\n"
+    "  if (!isFrontFace) N = -N;\n"
+    "  \n"
+    "  // Extract material properties\n"
+    "  float3 diffuseColor = mat.Diffuse.rgb;\n"
+    "  float3 specularColor = mat.SpecularShininess.rgb;\n"
+    "  float shininess = mat.SpecularShininess.a;\n"
+    "  float3 ambientColor = mat.Ambient.rgb;\n"
+    "  float3 emissionColor = mat.Emission.rgb;\n"
+    "  float alpha = mat.Diffuse.a;\n"
+    "  \n"
+    "  // Alpha test\n"
+    "  if (material.AlphaCutoff <= 1.0 && alpha < material.AlphaCutoff) {\n"
+    "    discard_fragment();\n"
+    "  }\n"
+    "  \n"
+    "  // Ambient term\n"
+    "  float3 result = ambientColor * lights.AmbientColor.rgb;\n"
+    "  \n"
+    "  // Add emission\n"
+    "  result += emissionColor;\n"
+    "  \n"
+    "  // Add contribution from each light\n"
+    "  for (int i = 0; i < lights.LightCount; i++) {\n"
+    "    result += computePhongLight(lights.Lights[i], N, V, in.viewPosition,\n"
+    "                                diffuseColor, specularColor, shininess);\n"
+    "  }\n"
+    "  \n"
+    "  return float4(saturate(result), alpha);\n"
+    "}\n"
+    "\n"
+    "// Phong fragment shader with materials and clipping\n"
+    "fragment float4 fragment_phong_material_clip(\n"
+    "  VertexOutPhong in [[stage_in]],\n"
+    "  constant Uniforms& uniforms         [[buffer(0)]],\n"
+    "  constant LightUniforms& lights      [[buffer(1)]],\n"
+    "  constant MaterialUniforms& material [[buffer(2)]],\n"
+    "  constant ClipUniforms& clip         [[buffer(3)]],\n"
+    "  bool isFrontFace [[front_facing]])\n"
+    "{\n"
+    "  // Clipping test first\n"
+    "  if (isClipped(in.worldPosition, clip)) discard_fragment();\n"
+    "  \n"
+    "  // Select material based on face orientation\n"
+    "  MaterialCommon mat = (isFrontFace || material.ToDistinguish == 0)\n"
+    "                       ? material.FrontCommon : material.BackCommon;\n"
+    "  \n"
+    "  float3 N = normalize(in.normal);\n"
+    "  float3 V = normalize(-in.viewPosition);\n"
+    "  \n"
+    "  if (!isFrontFace) N = -N;\n"
+    "  \n"
+    "  float3 diffuseColor = mat.Diffuse.rgb;\n"
+    "  float3 specularColor = mat.SpecularShininess.rgb;\n"
+    "  float shininess = mat.SpecularShininess.a;\n"
+    "  float3 ambientColor = mat.Ambient.rgb;\n"
+    "  float3 emissionColor = mat.Emission.rgb;\n"
+    "  float alpha = mat.Diffuse.a;\n"
+    "  \n"
+    "  if (material.AlphaCutoff <= 1.0 && alpha < material.AlphaCutoff) {\n"
+    "    discard_fragment();\n"
+    "  }\n"
+    "  \n"
+    "  float3 result = ambientColor * lights.AmbientColor.rgb + emissionColor;\n"
+    "  \n"
+    "  for (int i = 0; i < lights.LightCount; i++) {\n"
+    "    result += computePhongLight(lights.Lights[i], N, V, in.viewPosition,\n"
+    "                                diffuseColor, specularColor, shininess);\n"
+    "  }\n"
+    "  \n"
+    "  return float4(saturate(result), alpha);\n"
+    "}\n"
+    "\n"
+    "// ======== PBR HELPER FUNCTIONS ========\n"
+    "\n"
+    "// Normal Distribution Function (GGX/Trowbridge-Reitz)\n"
+    "float distributionGGX(float3 N, float3 H, float roughness) {\n"
+    "  float a = roughness * roughness;\n"
+    "  float a2 = a * a;\n"
+    "  float NdotH = max(dot(N, H), 0.0);\n"
+    "  float NdotH2 = NdotH * NdotH;\n"
+    "  float nom = a2;\n"
+    "  float denom = (NdotH2 * (a2 - 1.0) + 1.0);\n"
+    "  denom = M_PI_F * denom * denom;\n"
+    "  return nom / max(denom, 0.0001);\n"
+    "}\n"
+    "\n"
+    "// Geometry function (Schlick-GGX)\n"
+    "float geometrySchlickGGX(float NdotV, float roughness) {\n"
+    "  float r = roughness + 1.0;\n"
+    "  float k = (r * r) / 8.0;\n"
+    "  return NdotV / (NdotV * (1.0 - k) + k);\n"
+    "}\n"
+    "\n"
+    "float geometrySmith(float3 N, float3 V, float3 L, float roughness) {\n"
+    "  float NdotV = max(dot(N, V), 0.0);\n"
+    "  float NdotL = max(dot(N, L), 0.0);\n"
+    "  return geometrySchlickGGX(NdotV, roughness) * geometrySchlickGGX(NdotL, roughness);\n"
+    "}\n"
+    "\n"
+    "// Fresnel-Schlick approximation\n"
+    "float3 fresnelSchlick(float cosTheta, float3 F0) {\n"
+    "  return F0 + (1.0 - F0) * pow(saturate(1.0 - cosTheta), 5.0);\n"
+    "}\n"
+    "\n"
+    "// ======== PBR FRAGMENT SHADER ========\n"
+    "\n"
+    "fragment float4 fragment_pbr(\n"
+    "  VertexOutPhong in [[stage_in]],\n"
+    "  constant Uniforms& uniforms         [[buffer(0)]],\n"
+    "  constant LightUniforms& lights      [[buffer(1)]],\n"
+    "  constant MaterialUniforms& material [[buffer(2)]],\n"
+    "  bool isFrontFace [[front_facing]])\n"
+    "{\n"
+    "  // Select PBR material based on face\n"
+    "  MaterialPBR mat = (isFrontFace || material.ToDistinguish == 0)\n"
+    "                    ? material.FrontPBR : material.BackPBR;\n"
+    "  \n"
+    "  float3 albedo = mat.BaseColor.rgb;\n"
+    "  float alpha = mat.BaseColor.a;\n"
+    "  float metallic = mat.Params.b;    // z component\n"
+    "  float roughness = mat.Params.g;   // y component\n"
+    "  float ao = mat.Params.r;          // x component (occlusion)\n"
+    "  float3 emission = mat.EmissionIOR.rgb;\n"
+    "  \n"
+    "  // Alpha test\n"
+    "  if (material.AlphaCutoff <= 1.0 && alpha < material.AlphaCutoff) {\n"
+    "    discard_fragment();\n"
+    "  }\n"
+    "  \n"
+    "  float3 N = normalize(in.normal);\n"
+    "  float3 V = normalize(-in.viewPosition);\n"
+    "  \n"
+    "  if (!isFrontFace) N = -N;\n"
+    "  \n"
+    "  // Calculate F0 (reflectance at normal incidence)\n"
+    "  float3 F0 = mix(float3(0.04), albedo, metallic);\n"
+    "  \n"
+    "  float3 Lo = float3(0.0);\n"
+    "  \n"
+    "  // Accumulate light contributions\n"
+    "  for (int i = 0; i < lights.LightCount; i++) {\n"
+    "    LightSource light = lights.Lights[i];\n"
+    "    if (light.Parameters.w < 0.5) continue; // disabled\n"
+    "    \n"
+    "    int lightType = int(light.Parameters.z);\n"
+    "    float3 lightColor = light.Color.rgb * light.Color.w;\n"
+    "    float3 L;\n"
+    "    float attenuation = 1.0;\n"
+    "    \n"
+    "    if (lightType == LIGHT_TYPE_DIRECTIONAL) {\n"
+    "      L = normalize(-light.Position.xyz);\n"
+    "    } else {\n"
+    "      float3 lightVec = light.Position.xyz - in.viewPosition;\n"
+    "      float dist = length(lightVec);\n"
+    "      L = lightVec / dist;\n"
+    "      float range = light.Direction.w;\n"
+    "      if (range > 0.0) {\n"
+    "        attenuation = saturate(1.0 - dist / range);\n"
+    "        attenuation *= attenuation; // quadratic falloff\n"
+    "      }\n"
+    "      if (lightType == LIGHT_TYPE_SPOT) {\n"
+    "        float3 spotDir = normalize(-light.Direction.xyz);\n"
+    "        float cosAngle = dot(L, spotDir);\n"
+    "        float cosCutoff = light.Parameters.x;\n"
+    "        if (cosAngle < cosCutoff) {\n"
+    "          attenuation = 0.0;\n"
+    "        } else {\n"
+    "          float spotExponent = light.Parameters.y;\n"
+    "          attenuation *= pow(cosAngle, spotExponent);\n"
+    "        }\n"
+    "      }\n"
+    "    }\n"
+    "    \n"
+    "    float3 H = normalize(V + L);\n"
+    "    float3 radiance = lightColor * attenuation;\n"
+    "    \n"
+    "    // Cook-Torrance BRDF\n"
+    "    float NDF = distributionGGX(N, H, roughness);\n"
+    "    float G = geometrySmith(N, V, L, roughness);\n"
+    "    float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);\n"
+    "    \n"
+    "    float3 numerator = NDF * G * F;\n"
+    "    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;\n"
+    "    float3 specular = numerator / denominator;\n"
+    "    \n"
+    "    // Energy conservation\n"
+    "    float3 kS = F;\n"
+    "    float3 kD = (float3(1.0) - kS) * (1.0 - metallic);\n"
+    "    \n"
+    "    float NdotL = max(dot(N, L), 0.0);\n"
+    "    Lo += (kD * albedo / M_PI_F + specular) * radiance * NdotL;\n"
+    "  }\n"
+    "  \n"
+    "  // Ambient lighting (simplified IBL)\n"
+    "  float3 ambient = lights.AmbientColor.rgb * albedo * ao;\n"
+    "  \n"
+    "  float3 color = ambient + Lo + emission;\n"
+    "  \n"
+    "  return float4(color, alpha);\n"
+    "}\n"
+    "\n"
+    "// PBR fragment shader with clipping\n"
+    "fragment float4 fragment_pbr_clip(\n"
+    "  VertexOutPhong in [[stage_in]],\n"
+    "  constant Uniforms& uniforms         [[buffer(0)]],\n"
+    "  constant LightUniforms& lights      [[buffer(1)]],\n"
+    "  constant MaterialUniforms& material [[buffer(2)]],\n"
+    "  constant ClipUniforms& clip         [[buffer(3)]],\n"
+    "  bool isFrontFace [[front_facing]])\n"
+    "{\n"
+    "  if (isClipped(in.worldPosition, clip)) discard_fragment();\n"
+    "  \n"
+    "  MaterialPBR mat = (isFrontFace || material.ToDistinguish == 0)\n"
+    "                    ? material.FrontPBR : material.BackPBR;\n"
+    "  \n"
+    "  float3 albedo = mat.BaseColor.rgb;\n"
+    "  float alpha = mat.BaseColor.a;\n"
+    "  float metallic = mat.Params.b;\n"
+    "  float roughness = mat.Params.g;\n"
+    "  float ao = mat.Params.r;\n"
+    "  float3 emission = mat.EmissionIOR.rgb;\n"
+    "  \n"
+    "  if (material.AlphaCutoff <= 1.0 && alpha < material.AlphaCutoff) {\n"
+    "    discard_fragment();\n"
+    "  }\n"
+    "  \n"
+    "  float3 N = normalize(in.normal);\n"
+    "  float3 V = normalize(-in.viewPosition);\n"
+    "  if (!isFrontFace) N = -N;\n"
+    "  \n"
+    "  float3 F0 = mix(float3(0.04), albedo, metallic);\n"
+    "  float3 Lo = float3(0.0);\n"
+    "  \n"
+    "  for (int i = 0; i < lights.LightCount; i++) {\n"
+    "    LightSource light = lights.Lights[i];\n"
+    "    if (light.Parameters.w < 0.5) continue;\n"
+    "    \n"
+    "    int lightType = int(light.Parameters.z);\n"
+    "    float3 lightColor = light.Color.rgb * light.Color.w;\n"
+    "    float3 L;\n"
+    "    float attenuation = 1.0;\n"
+    "    \n"
+    "    if (lightType == LIGHT_TYPE_DIRECTIONAL) {\n"
+    "      L = normalize(-light.Position.xyz);\n"
+    "    } else {\n"
+    "      float3 lightVec = light.Position.xyz - in.viewPosition;\n"
+    "      float dist = length(lightVec);\n"
+    "      L = lightVec / dist;\n"
+    "      float range = light.Direction.w;\n"
+    "      if (range > 0.0) {\n"
+    "        attenuation = saturate(1.0 - dist / range);\n"
+    "        attenuation *= attenuation;\n"
+    "      }\n"
+    "      if (lightType == LIGHT_TYPE_SPOT) {\n"
+    "        float3 spotDir = normalize(-light.Direction.xyz);\n"
+    "        float cosAngle = dot(L, spotDir);\n"
+    "        float cosCutoff = light.Parameters.x;\n"
+    "        if (cosAngle < cosCutoff) attenuation = 0.0;\n"
+    "        else attenuation *= pow(cosAngle, light.Parameters.y);\n"
+    "      }\n"
+    "    }\n"
+    "    \n"
+    "    float3 H = normalize(V + L);\n"
+    "    float3 radiance = lightColor * attenuation;\n"
+    "    \n"
+    "    float NDF = distributionGGX(N, H, roughness);\n"
+    "    float G = geometrySmith(N, V, L, roughness);\n"
+    "    float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);\n"
+    "    \n"
+    "    float3 numerator = NDF * G * F;\n"
+    "    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;\n"
+    "    float3 specular = numerator / denominator;\n"
+    "    \n"
+    "    float3 kS = F;\n"
+    "    float3 kD = (float3(1.0) - kS) * (1.0 - metallic);\n"
+    "    \n"
+    "    float NdotL = max(dot(N, L), 0.0);\n"
+    "    Lo += (kD * albedo / M_PI_F + specular) * radiance * NdotL;\n"
+    "  }\n"
+    "  \n"
+    "  float3 ambient = lights.AmbientColor.rgb * albedo * ao;\n"
+    "  float3 color = ambient + Lo + emission;\n"
+    "  \n"
+    "  return float4(color, alpha);\n"
+    "}\n"
+    "\n"
     "// ======== LEGACY SHADERS (for backwards compatibility) ========\n"
     "\n"
     "struct VertexOut {\n"
@@ -856,12 +1301,13 @@ TCollection_AsciiString Metal_ShaderManager::generateShaderSource() const
     "};\n"
     "\n"
     "vertex VertexOut vertex_basic(\n"
-    "  const device float3* positions [[buffer(0)]],\n"
-    "  constant Uniforms& uniforms    [[buffer(1)]],\n"
-    "  uint vid                       [[vertex_id]])\n"
+    "  const device packed_float3* positions [[buffer(0)]],\n"
+    "  constant Uniforms& uniforms           [[buffer(1)]],\n"
+    "  uint vid                              [[vertex_id]])\n"
     "{\n"
     "  VertexOut out;\n"
-    "  float4 worldPos = float4(positions[vid], 1.0);\n"
+    "  float3 pos = float3(positions[vid]);\n"
+    "  float4 worldPos = float4(pos, 1.0);\n"
     "  float4 viewPos = uniforms.modelViewMatrix * worldPos;\n"
     "  out.position = uniforms.projectionMatrix * viewPos;\n"
     "  out.viewPosition = viewPos.xyz;\n"
@@ -1357,13 +1803,14 @@ TCollection_AsciiString Metal_ShaderManager::generateShaderSource() const
     "// Note: For proper line stipple, we need distance along the line\n"
     "// This requires either geometry shader emulation or compute preprocessing\n"
     "vertex VertexOutLine vertex_line_stipple(\n"
-    "  const device float3* positions     [[buffer(0)]],\n"
-    "  const device float*  lineDistances [[buffer(2)]],  // precomputed distances\n"
-    "  constant Uniforms& uniforms        [[buffer(1)]],\n"
-    "  uint vid                           [[vertex_id]])\n"
+    "  const device packed_float3* positions [[buffer(0)]],\n"
+    "  const device float*  lineDistances    [[buffer(2)]],  // precomputed distances\n"
+    "  constant Uniforms& uniforms           [[buffer(1)]],\n"
+    "  uint vid                              [[vertex_id]])\n"
     "{\n"
     "  VertexOutLine out;\n"
-    "  float4 worldPos = float4(positions[vid], 1.0);\n"
+    "  float3 pos = float3(positions[vid]);\n"
+    "  float4 worldPos = float4(pos, 1.0);\n"
     "  float4 viewPos = uniforms.modelViewMatrix * worldPos;\n"
     "  out.position = uniforms.projectionMatrix * viewPos;\n"
     "  out.worldPosition = worldPos.xyz;\n"
@@ -1375,13 +1822,14 @@ TCollection_AsciiString Metal_ShaderManager::generateShaderSource() const
     "// Simple vertex shader for lines without precomputed distances\n"
     "// Uses vertex index as approximate distance (works for line strips)\n"
     "vertex VertexOutLine vertex_line_stipple_simple(\n"
-    "  const device float3* positions [[buffer(0)]],\n"
-    "  constant Uniforms& uniforms    [[buffer(1)]],\n"
-    "  constant LineUniforms& line    [[buffer(3)]],\n"
-    "  uint vid                       [[vertex_id]])\n"
+    "  const device packed_float3* positions [[buffer(0)]],\n"
+    "  constant Uniforms& uniforms           [[buffer(1)]],\n"
+    "  constant LineUniforms& line           [[buffer(3)]],\n"
+    "  uint vid                              [[vertex_id]])\n"
     "{\n"
     "  VertexOutLine out;\n"
-    "  float4 worldPos = float4(positions[vid], 1.0);\n"
+    "  float3 pos = float3(positions[vid]);\n"
+    "  float4 worldPos = float4(pos, 1.0);\n"
     "  float4 viewPos = uniforms.modelViewMatrix * worldPos;\n"
     "  float4 clipPos = uniforms.projectionMatrix * viewPos;\n"
     "  out.position = clipPos;\n"
@@ -1436,8 +1884,8 @@ TCollection_AsciiString Metal_ShaderManager::generateShaderSource() const
     "// Compute shader to calculate cumulative line distances for line strips\n"
     "// This is needed for accurate stipple patterns along polylines\n"
     "kernel void compute_line_distances(\n"
-    "  device const float3* positions   [[buffer(0)]],\n"
-    "  device float* lineDistances      [[buffer(1)]],\n"
+    "  device const packed_float3* positions [[buffer(0)]],\n"
+    "  device float* lineDistances           [[buffer(1)]],\n"
     "  constant Uniforms& uniforms      [[buffer(2)]],\n"
     "  constant float2& viewport        [[buffer(3)]],\n"
     "  uint vid                         [[thread_position_in_grid]])\n"
@@ -1578,18 +2026,20 @@ TCollection_AsciiString Metal_ShaderManager::generateShaderSource() const
     "\n"
     "// Vertex shader for hatched surfaces\n"
     "vertex VertexOutHatch vertex_hatch(\n"
-    "  const device float3* positions [[buffer(0)]],\n"
-    "  const device float3* normals   [[buffer(2)]],\n"
-    "  constant Uniforms& uniforms    [[buffer(1)]],\n"
-    "  uint vid                       [[vertex_id]])\n"
+    "  const device packed_float3* positions [[buffer(0)]],\n"
+    "  const device packed_float3* normals   [[buffer(2)]],\n"
+    "  constant Uniforms& uniforms           [[buffer(1)]],\n"
+    "  uint vid                              [[vertex_id]])\n"
     "{\n"
     "  VertexOutHatch out;\n"
-    "  float4 worldPos = float4(positions[vid], 1.0);\n"
+    "  float3 pos = float3(positions[vid]);\n"
+    "  float3 norm = float3(normals[vid]);\n"
+    "  float4 worldPos = float4(pos, 1.0);\n"
     "  float4 viewPos = uniforms.modelViewMatrix * worldPos;\n"
     "  out.position = uniforms.projectionMatrix * viewPos;\n"
     "  out.worldPosition = worldPos.xyz;\n"
     "  out.viewPosition = viewPos.xyz;\n"
-    "  out.normal = normalize((uniforms.modelViewMatrix * float4(normals[vid], 0.0)).xyz);\n"
+    "  out.normal = normalize((uniforms.modelViewMatrix * float4(norm, 0.0)).xyz);\n"
     "  out.color = uniforms.color;\n"
     "  return out;\n"
     "}\n"

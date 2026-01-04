@@ -130,8 +130,7 @@ void Metal_Material::Init(Metal_Context* /*theCtx*/,
     aRoughness = 1.0f - theMat.Shininess() * 0.5f;
   }
 
-  // Try to get PBR values if available
-  if (theMat.PBRMaterial().IsDefined)
+  // Get PBR material values (always available)
   {
     const Graphic3d_PBRMaterial& aPbrSrc = theMat.PBRMaterial();
     aMetallic = aPbrSrc.Metallic();
@@ -146,7 +145,7 @@ void Metal_Material::Init(Metal_Context* /*theCtx*/,
       aPbrColor.Alpha());
 
     // Emission from PBR
-    const Graphic3d_Vec3& aPbrEmission = aPbrSrc.Emission();
+    const NCollection_Vec3<float> aPbrEmission = aPbrSrc.Emission();
     aPbr.EmissionIOR.SetValues(
       NCollection_Vec3<float>(aPbrEmission.r(), aPbrEmission.g(), aPbrEmission.b()),
       aPbr.EmissionIOR.a());
@@ -156,4 +155,25 @@ void Metal_Material::Init(Metal_Context* /*theCtx*/,
   }
 
   aPbr.Params = NCollection_Vec4<float>(1.0f, aRoughness, aMetallic, 1.0f);
+}
+
+// =======================================================================
+// function : Init
+// purpose  : Initialize material from Graphic3d_Aspects handle
+// =======================================================================
+void Metal_Material::Init(const occ::handle<Graphic3d_Aspects>& theAspect)
+{
+  if (theAspect.IsNull())
+  {
+    return;
+  }
+
+  // Extract front/back materials and colors
+  const Graphic3d_MaterialAspect& aFrontMat = theAspect->FrontMaterial();
+  const Graphic3d_MaterialAspect& aBackMat = theAspect->BackMaterial();
+  const Quantity_Color aFrontColor = theAspect->InteriorColor();
+  const Quantity_Color aBackColor = theAspect->BackInteriorColor();
+
+  // Initialize using the existing method (pass nullptr for context as it's unused)
+  Init(nullptr, aFrontMat, aFrontColor, aBackMat, aBackColor);
 }

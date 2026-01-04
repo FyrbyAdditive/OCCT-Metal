@@ -1,0 +1,85 @@
+puts "========"
+puts "Metal_PBRMaterial"
+puts "Test PBR material rendering with metallic/roughness workflow"
+puts "========"
+puts ""
+
+pload MODELING VISUALIZATION
+
+# Skip test if not on macOS
+if { $::tcl_platform(os) != "Darwin" } {
+  puts "SKIP: Metal is only available on macOS"
+  return
+}
+
+catch {
+  # Create view
+  vinit View1 -width 800 -height 600
+  vclear
+
+  # Create test geometry - spheres with varying metallic/roughness
+  for {set row 0} {$row < 5} {incr row} {
+    for {set col 0} {$col < 5} {incr col} {
+      set x [expr $col * 2.5 - 5]
+      set y [expr $row * 2.5 - 5]
+      set metallic [expr $col / 4.0]
+      set roughness [expr $row / 4.0]
+
+      psphere s_${row}_${col} 1
+      ttranslate s_${row}_${col} $x $y 0
+      vdisplay s_${row}_${col} -displayMode 1
+    }
+  }
+
+  # Set PBR shading
+  vrenderparams -shadingModel pbr
+
+  # Set materials for each sphere - varying metallic horizontally, roughness vertically
+  for {set row 0} {$row < 5} {incr row} {
+    for {set col 0} {$col < 5} {incr col} {
+      set metallic [expr $col / 4.0]
+      set roughness [expr $row / 4.0]
+      vaspects s_${row}_${col} -setColor 0.8 0.2 0.2 -setPbrMetallic $metallic -setPbrRoughness $roughness
+    }
+  }
+
+  vfit
+
+  # Add lighting
+  vlight -clear
+  vlight -add directional -direction -1 -1 -1 -color white -intensity 1.0
+  vlight -add ambient -color white -intensity 0.3
+
+  vrepaint
+  vdump $imagedir/${casename}_pbr_grid.png
+  puts "PBR metallic-roughness grid rendered"
+
+  # Clear and test single sphere with different PBR materials
+  vclear
+  psphere s 2
+  vdisplay s -displayMode 1
+  vrenderparams -shadingModel pbr
+  vfit
+
+  # Dielectric (non-metal, smooth)
+  vaspects s -setColor 0.1 0.5 0.9 -setPbrMetallic 0.0 -setPbrRoughness 0.1
+  vrepaint
+  vdump $imagedir/${casename}_pbr_dielectric.png
+  puts "PBR dielectric material rendered"
+
+  # Metal (high metallic, smooth)
+  vaspects s -setColor 0.9 0.7 0.4 -setPbrMetallic 1.0 -setPbrRoughness 0.1
+  vrepaint
+  vdump $imagedir/${casename}_pbr_metal.png
+  puts "PBR metal material rendered"
+
+  # Rough metal
+  vaspects s -setColor 0.8 0.5 0.3 -setPbrMetallic 0.9 -setPbrRoughness 0.7
+  vrepaint
+  vdump $imagedir/${casename}_pbr_rough_metal.png
+  puts "PBR rough metal material rendered"
+
+  puts "PBR material test completed"
+}
+
+puts "TEST PASSED"

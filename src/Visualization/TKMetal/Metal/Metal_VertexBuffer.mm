@@ -16,6 +16,8 @@
 #include <Metal_VertexBuffer.hxx>
 #include <Metal_Context.hxx>
 
+#include <vector>
+
 IMPLEMENT_STANDARD_RTTIEXT(Metal_VertexBuffer, Metal_Buffer)
 
 // =======================================================================
@@ -188,7 +190,8 @@ bool Metal_VertexBuffer::Init(Metal_Context* theCtx,
   }
 
   size_t aFormatSize = VertexFormatSize(myVertexFormat);
-  myStride = (theStride > 0) ? size_t(theStride) : aFormatSize;
+  size_t aInputStride = (theStride > 0) ? size_t(theStride) : aFormatSize;
+  myStride = aFormatSize; // Output is always tightly packed
 
   // Determine components and type size
   unsigned int aComponentsNb = 1;
@@ -217,6 +220,27 @@ bool Metal_VertexBuffer::Init(Metal_Context* theCtx,
       break;
     default:
       return false;
+  }
+
+  // If data is interleaved (stride > element size), we need to de-interleave it
+  if (aInputStride > aFormatSize && theData != nullptr)
+  {
+    // Allocate temporary buffer for de-interleaved data
+    size_t aPackedSize = size_t(theNbElems) * aFormatSize;
+    std::vector<uint8_t> aPackedData(aPackedSize);
+
+    const uint8_t* aSrc = static_cast<const uint8_t*>(theData);
+    uint8_t* aDst = aPackedData.data();
+
+    // Copy each element, skipping the interleaved parts
+    for (int i = 0; i < theNbElems; ++i)
+    {
+      memcpy(aDst, aSrc, aFormatSize);
+      aSrc += aInputStride;
+      aDst += aFormatSize;
+    }
+
+    return Metal_Buffer::initData(theCtx, aComponentsNb, theNbElems, aTypeSize, aPackedData.data());
   }
 
   return Metal_Buffer::initData(theCtx, aComponentsNb, theNbElems, aTypeSize, theData);
