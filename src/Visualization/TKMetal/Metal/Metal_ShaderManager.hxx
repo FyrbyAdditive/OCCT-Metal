@@ -395,8 +395,8 @@ public: //! @name Shader program access
   Standard_EXPORT bool GetProgram(Graphic3d_TypeOfShadingModel theModel,
                                    int theBits,
 #ifdef __OBJC__
-                                   id<MTLRenderPipelineState>& thePipeline,
-                                   id<MTLDepthStencilState>& theDepthStencil
+                                   __strong id<MTLRenderPipelineState>& thePipeline,
+                                   __strong id<MTLDepthStencilState>& theDepthStencil
 #else
                                    void*& thePipeline,
                                    void*& theDepthStencil
@@ -441,8 +441,8 @@ protected:
   Standard_EXPORT bool createPipeline(Graphic3d_TypeOfShadingModel theModel,
                                        int theBits,
 #ifdef __OBJC__
-                                       id<MTLRenderPipelineState>& thePipeline,
-                                       id<MTLDepthStencilState>& theDepthStencil
+                                       __strong id<MTLRenderPipelineState>& thePipeline,
+                                       __strong id<MTLDepthStencilState>& theDepthStencil
 #else
                                        void*& thePipeline,
                                        void*& theDepthStencil

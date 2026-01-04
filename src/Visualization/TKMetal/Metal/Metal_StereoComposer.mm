@@ -282,7 +282,7 @@ id<MTLRenderPipelineState> Metal_StereoComposer::getPipeline(Metal_Context* theC
                                                               Graphic3d_StereoMode theMode,
                                                               MTLPixelFormat theTargetFormat)
 {
-  id<MTLRenderPipelineState>* aPipelinePtr = nullptr;
+  __strong id<MTLRenderPipelineState>* aPipelinePtr = nullptr;
   NSString* aFragmentName = nil;
 
   switch (theMode)

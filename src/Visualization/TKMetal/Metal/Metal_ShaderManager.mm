@@ -339,20 +339,26 @@ void Metal_ShaderManager::UpdateClippingPlanes(const Graphic3d_SequenceOfHClipPl
 // =======================================================================
 bool Metal_ShaderManager::GetProgram(Graphic3d_TypeOfShadingModel theModel,
                                       int theBits,
-                                      id<MTLRenderPipelineState>& thePipeline,
-                                      id<MTLDepthStencilState>& theDepthStencil)
+                                      __strong id<MTLRenderPipelineState>& thePipeline,
+                                      __strong id<MTLDepthStencilState>& theDepthStencil)
 {
   Metal_ShaderProgramKey aKey(theModel, theBits);
 
+  // Use local __strong variables for ARC compatibility with NCollection_DataMap::Find
+  __strong id<MTLRenderPipelineState> aCachedPipeline = nil;
+  __strong id<MTLDepthStencilState> aCachedDepthStencil = nil;
+
   // Check cache first
-  if (myPipelineCache.Find(aKey, thePipeline))
+  if (myPipelineCache.Find(aKey, aCachedPipeline))
   {
+    thePipeline = aCachedPipeline;
     // Get depth-stencil state (same for all pipelines for now)
-    if (!myDepthStencilCache.Find(0, theDepthStencil))
+    if (!myDepthStencilCache.Find(0, aCachedDepthStencil))
     {
       myContext->Messenger()->SendInfo() << "Metal_ShaderManager::GetProgram: depth-stencil not found in cache";
       return false;
     }
+    theDepthStencil = aCachedDepthStencil;
     return true;
   }
 
@@ -528,8 +534,8 @@ bool Metal_ShaderManager::createShaderLibrary()
 // =======================================================================
 bool Metal_ShaderManager::createPipeline(Graphic3d_TypeOfShadingModel theModel,
                                           int theBits,
-                                          id<MTLRenderPipelineState>& thePipeline,
-                                          id<MTLDepthStencilState>& theDepthStencil)
+                                          __strong id<MTLRenderPipelineState>& thePipeline,
+                                          __strong id<MTLDepthStencilState>& theDepthStencil)
 {
   if (myContext == nullptr)
   {
@@ -644,7 +650,9 @@ bool Metal_ShaderManager::createPipeline(Graphic3d_TypeOfShadingModel theModel,
     }
 
     // Create or get depth-stencil state
-    if (!myDepthStencilCache.Find(0, theDepthStencil))
+    // Use local __strong variable for ARC compatibility with NCollection_DataMap::Find
+    __strong id<MTLDepthStencilState> aCachedDepthStencil = nil;
+    if (!myDepthStencilCache.Find(0, aCachedDepthStencil))
     {
       MTLDepthStencilDescriptor* aDepthDesc = [[MTLDepthStencilDescriptor alloc] init];
       aDepthDesc.depthCompareFunction = MTLCompareFunctionLess;
@@ -652,6 +660,10 @@ bool Metal_ShaderManager::createPipeline(Graphic3d_TypeOfShadingModel theModel,
 
       theDepthStencil = [myContext->Device() newDepthStencilStateWithDescriptor:aDepthDesc];
       myDepthStencilCache.Bind(0, theDepthStencil);
+    }
+    else
+    {
+      theDepthStencil = aCachedDepthStencil;
     }
 
     // Cache the pipeline

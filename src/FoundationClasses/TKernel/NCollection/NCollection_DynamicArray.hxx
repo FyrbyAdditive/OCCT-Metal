@@ -409,7 +409,8 @@ protected:
   }
 
   //! Wrapper to extract array
-  TheItemType** getArray() const noexcept { return (TheItemType**)myContainer.GetArray(); }
+  //! Use reinterpret_cast for ARC compatibility with Objective-C types
+  TheItemType** getArray() const noexcept { return reinterpret_cast<TheItemType**>(myContainer.GetArray()); }
 
 protected:
   vector         myContainer;
