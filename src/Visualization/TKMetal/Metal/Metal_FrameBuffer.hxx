@@ -22,10 +22,7 @@
 #include <TCollection_AsciiString.hxx>
 
 #ifdef __OBJC__
-@protocol MTLTexture;
-@protocol MTLBuffer;
-@protocol MTLCommandBuffer;
-@class MTLRenderPassDescriptor;
+#import <Metal/Metal.h>
 #endif
 
 class Metal_Context;
@@ -243,7 +240,7 @@ public:
   //! @return true if data was copied
   Standard_EXPORT static bool TryCopyReadbackData(AsyncReadbackHandle& theHandle,
                                                    void* theData);
-#endif
+#endif // __OBJC__
 
 protected:
 

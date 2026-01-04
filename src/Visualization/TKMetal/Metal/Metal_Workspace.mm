@@ -39,6 +39,9 @@ Metal_Workspace::Metal_Workspace(Metal_Context* theCtx, Metal_View* theView)
   myIsWireframeMode(false),
   myIsTransparentMode(false),
   myStencilTestEnabled(false),
+  myIsMeshEdgesMode(false),
+  myMeshEdgesLineWidth(1.5f),
+  myMeshEdgesColor(0.0f, 0.0f, 0.0f, 1.0f),
   myShaderManager(nullptr),
   myClipping(nullptr),
   myShadingModel(Graphic3d_TypeOfShadingModel_Phong),
@@ -628,4 +631,35 @@ void Metal_Workspace::ApplyFlipping(const gp_Ax2& theRefPlane)
 
   // Update model matrix with flipping transform
   myModelMatrix = myModelMatrix * aTransform;
+}
+
+// =======================================================================
+// function : ApplyMeshEdgesPipelineState
+// purpose  : Apply MeshEdges wireframe overlay pipeline state
+// =======================================================================
+void Metal_Workspace::ApplyMeshEdgesPipelineState()
+{
+  if (myEncoder == nil || myContext == nullptr || myGeometryEmulator.IsNull())
+  {
+    return;
+  }
+
+  // Use wireframe overlay pipeline from geometry emulator
+  id<MTLRenderPipelineState> aPipeline = myGeometryEmulator->WireframePipeline(Metal_WireframeMode_Overlay);
+  if (aPipeline != nil && aPipeline != myCurrentPipeline)
+  {
+    [myEncoder setRenderPipelineState:aPipeline];
+    myCurrentPipeline = aPipeline;
+  }
+
+  // Apply depth-stencil state
+  id<MTLDepthStencilState> aDepthState = myContext->DefaultDepthStencilState();
+  if (aDepthState != nil && aDepthState != myDepthStencilState)
+  {
+    [myEncoder setDepthStencilState:aDepthState];
+    myDepthStencilState = aDepthState;
+  }
+
+  // Disable culling for wireframe (edges visible from both sides)
+  [myEncoder setCullMode:MTLCullModeNone];
 }

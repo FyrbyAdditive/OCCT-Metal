@@ -22,6 +22,7 @@
 #include <Graphic3d_TypeOfShadingModel.hxx>
 #include <Graphic3d_SequenceOfHClipPlane.hxx>
 #include <Metal_RenderFilter.hxx>
+#include <Metal_GeometryEmulator.hxx>
 #include <NCollection_Mat4.hxx>
 #include <Quantity_ColorRGBA.hxx>
 #include <gp_Ax2.hxx>
@@ -165,6 +166,33 @@ public:
   //! Apply pipeline state for edge/line rendering.
   Standard_EXPORT void ApplyEdgePipelineState();
 
+  //! Return geometry emulator for MeshEdges rendering.
+  const occ::handle<Metal_GeometryEmulator>& GeometryEmulator() const { return myGeometryEmulator; }
+
+  //! Set geometry emulator for MeshEdges rendering.
+  void SetGeometryEmulator(const occ::handle<Metal_GeometryEmulator>& theEmulator) { myGeometryEmulator = theEmulator; }
+
+  //! Set MeshEdges rendering mode (smooth anti-aliased wireframe overlay).
+  void SetMeshEdgesMode(bool theValue) { myIsMeshEdgesMode = theValue; }
+
+  //! Return true if MeshEdges mode is active.
+  bool IsMeshEdgesMode() const { return myIsMeshEdgesMode; }
+
+  //! Set wireframe line width for MeshEdges.
+  void SetMeshEdgesLineWidth(float theWidth) { myMeshEdgesLineWidth = theWidth; }
+
+  //! Return wireframe line width for MeshEdges.
+  float MeshEdgesLineWidth() const { return myMeshEdgesLineWidth; }
+
+  //! Set wireframe color for MeshEdges overlay.
+  void SetMeshEdgesColor(const Quantity_ColorRGBA& theColor) { myMeshEdgesColor = theColor; }
+
+  //! Return wireframe color for MeshEdges.
+  const Quantity_ColorRGBA& MeshEdgesColor() const { return myMeshEdgesColor; }
+
+  //! Apply MeshEdges wireframe overlay pipeline state.
+  Standard_EXPORT void ApplyMeshEdgesPipelineState();
+
   //! Set transparent/blending rendering mode.
   void SetTransparentMode(bool theValue) { myIsTransparentMode = theValue; }
 
@@ -276,6 +304,10 @@ protected:
   bool                           myIsWireframeMode;  //!< wireframe mode flag
   bool                           myIsTransparentMode; //!< transparent/blending mode flag
   bool                           myStencilTestEnabled; //!< stencil test enabled flag
+  bool                           myIsMeshEdgesMode;  //!< MeshEdges mode (smooth wireframe overlay)
+  float                          myMeshEdgesLineWidth; //!< line width for MeshEdges
+  Quantity_ColorRGBA             myMeshEdgesColor;   //!< wireframe color for MeshEdges
+  occ::handle<Metal_GeometryEmulator> myGeometryEmulator; //!< geometry emulator for MeshEdges
 
   Metal_ShaderManager*           myShaderManager;    //!< shader manager
   Metal_Clipping*                myClipping;         //!< clipping manager
