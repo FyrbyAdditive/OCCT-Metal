@@ -25,6 +25,7 @@
 #include <Metal_Caps.hxx>
 #include <Metal_Context.hxx>
 #include <Metal_FrameBuffer.hxx>
+#include <Metal_GraduatedTrihedron.hxx>
 #include <Metal_ShadowMap.hxx>
 #include <Metal_Texture.hxx>
 #include <Metal_Window.hxx>
@@ -163,6 +164,18 @@ public:
   Standard_EXPORT void FBOChangeViewport(const occ::handle<Standard_Transient>& theFbo,
                                          const int theWidth,
                                          const int theHeight) override;
+
+public: //! @name Graduated Trihedron
+
+  //! Displays Graduated Trihedron.
+  Standard_EXPORT void GraduatedTrihedronDisplay(const Graphic3d_GraduatedTrihedron& theTrihedronData) override;
+
+  //! Erases Graduated Trihedron.
+  Standard_EXPORT void GraduatedTrihedronErase() override;
+
+  //! Sets minimum and maximum points of scene bounding box for Graduated Trihedron.
+  Standard_EXPORT void GraduatedTrihedronMinMaxValues(const NCollection_Vec3<float> theMin,
+                                                      const NCollection_Vec3<float> theMax) override;
 
 public: //! @name Background
 
@@ -308,6 +321,12 @@ protected:
 
   // View frustum culling
   Graphic3d_CullingTool             myBVHSelector;        //!< Selector for BVH tree frustum culling
+
+  // Graduated trihedron
+  Metal_GraduatedTrihedron          myGraduatedTrihedron; //!< Graduated trihedron renderer
+  bool                              myToShowGradTrihedron; //!< Flag to show graduated trihedron
+  NCollection_Vec3<float>           myGradTrihedronMin;   //!< Graduated trihedron min bounds
+  NCollection_Vec3<float>           myGradTrihedronMax;   //!< Graduated trihedron max bounds
 };
 
 #endif // Metal_View_HeaderFile

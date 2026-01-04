@@ -54,7 +54,10 @@ Metal_View::Metal_View(const occ::handle<Graphic3d_StructureManager>& theMgr,
   myFrameCounter(0),
   myDepthTexture(nil),
   myDepthWidth(0),
-  myDepthHeight(0)
+  myDepthHeight(0),
+  myToShowGradTrihedron(false),
+  myGradTrihedronMin(0.0f, 0.0f, 0.0f),
+  myGradTrihedronMax(100.0f, 100.0f, 100.0f)
 {
   myLights = new Graphic3d_LightSet();
   myClipPlanes = new Graphic3d_SequenceOfHClipPlane();
@@ -94,6 +97,9 @@ void Metal_View::ReleaseGlResources(Metal_Context* theCtx)
   myDepthTexture = nil;
   myDepthWidth = 0;
   myDepthHeight = 0;
+
+  // Release graduated trihedron
+  myGraduatedTrihedron.Release(theCtx);
 
   // Release window
   myWindow.Nullify();
@@ -308,6 +314,12 @@ void Metal_View::Redraw()
 
     // Render all displayed structures
     renderStructures(aWorkspace.get());
+
+    // Render graduated trihedron if enabled
+    if (myToShowGradTrihedron)
+    {
+      myGraduatedTrihedron.Render(aWorkspace.get(), myGradTrihedronMin, myGradTrihedronMax);
+    }
   }
   else if (myContext->DefaultPipeline() != nil)
   {
@@ -980,6 +992,42 @@ void Metal_View::SetBackgroundImageStyle(const Aspect_FillMethod theFillStyle)
 {
   myBgImageStyle = theFillStyle;
   myBackBufferRestored = false;
+}
+
+// =======================================================================
+// function : GraduatedTrihedronDisplay
+// purpose  : Displays Graduated Trihedron
+// =======================================================================
+void Metal_View::GraduatedTrihedronDisplay(const Graphic3d_GraduatedTrihedron& theTrihedronData)
+{
+  myGTrihedronData = theTrihedronData;
+  myGraduatedTrihedron.SetData(myGTrihedronData);
+  myGraduatedTrihedron.SetEnabled(true);
+  myToShowGradTrihedron = true;
+  myBackBufferRestored = false;
+}
+
+// =======================================================================
+// function : GraduatedTrihedronErase
+// purpose  : Erases Graduated Trihedron
+// =======================================================================
+void Metal_View::GraduatedTrihedronErase()
+{
+  myGraduatedTrihedron.SetEnabled(false);
+  myGraduatedTrihedron.Release(myContext.get());
+  myToShowGradTrihedron = false;
+  myBackBufferRestored = false;
+}
+
+// =======================================================================
+// function : GraduatedTrihedronMinMaxValues
+// purpose  : Sets min/max bounds for Graduated Trihedron
+// =======================================================================
+void Metal_View::GraduatedTrihedronMinMaxValues(const NCollection_Vec3<float> theMin,
+                                                 const NCollection_Vec3<float> theMax)
+{
+  myGradTrihedronMin = theMin;
+  myGradTrihedronMax = theMax;
 }
 
 // =======================================================================
