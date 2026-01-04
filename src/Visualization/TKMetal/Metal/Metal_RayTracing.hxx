@@ -266,6 +266,80 @@ public:
   //! Return environment map rotation.
   float EnvironmentMapRotation() const { return myEnvMapRotation; }
 
+  //! Set depth of field enabled (Phase 13).
+  void SetDepthOfFieldEnabled(bool theEnabled) { myDOFEnabled = theEnabled; }
+
+  //! Return true if depth of field is enabled.
+  bool IsDepthOfFieldEnabled() const { return myDOFEnabled; }
+
+  //! Set aperture radius for DOF (Phase 13). 0 = pinhole (no DOF). Default: 0.0
+  void SetAperture(float theAperture) { myAperture = theAperture; }
+
+  //! Return aperture radius.
+  float Aperture() const { return myAperture; }
+
+  //! Set focal distance for DOF (Phase 13). Default: 5.0
+  void SetFocalDistance(float theDistance) { myFocalDistance = theDistance; }
+
+  //! Return focal distance.
+  float FocalDistance() const { return myFocalDistance; }
+
+  //! Tone mapping mode enumeration (Phase 14).
+  enum ToneMappingMode {
+    ToneMapping_None = 0,       //!< No tone mapping (clamp to [0,1])
+    ToneMapping_Reinhard = 1,   //!< Reinhard extended
+    ToneMapping_ACES = 2,       //!< ACES Filmic
+    ToneMapping_Uncharted2 = 3  //!< Uncharted 2 filmic
+  };
+
+  //! Set tone mapping enabled (Phase 14).
+  void SetToneMappingEnabled(bool theEnabled) { myToneMappingEnabled = theEnabled; }
+
+  //! Return true if tone mapping is enabled.
+  bool IsToneMappingEnabled() const { return myToneMappingEnabled; }
+
+  //! Set tone mapping mode (Phase 14). Default: ToneMapping_ACES
+  void SetToneMappingMode(ToneMappingMode theMode) { myToneMappingMode = theMode; }
+
+  //! Return tone mapping mode.
+  ToneMappingMode GetToneMappingMode() const { return myToneMappingMode; }
+
+  //! Set exposure value (Phase 14). Default: 0.0 (no adjustment)
+  void SetExposure(float theExposure) { myExposure = theExposure; }
+
+  //! Return exposure value.
+  float Exposure() const { return myExposure; }
+
+  //! Set gamma value (Phase 14). Default: 2.2
+  void SetGamma(float theGamma) { myGamma = theGamma; }
+
+  //! Return gamma value.
+  float Gamma() const { return myGamma; }
+
+  //! Set white point for tone mapping (Phase 14). Default: 4.0
+  void SetWhitePoint(float theWhitePoint) { myWhitePoint = theWhitePoint; }
+
+  //! Return white point.
+  float WhitePoint() const { return myWhitePoint; }
+
+  //! Set bloom enabled (Phase 14).
+  void SetBloomEnabled(bool theEnabled) { myBloomEnabled = theEnabled; }
+
+  //! Return true if bloom is enabled.
+  bool IsBloomEnabled() const { return myBloomEnabled; }
+
+  //! Set bloom threshold (Phase 14). Default: 1.0
+  void SetBloomThreshold(float theThreshold) { myBloomThreshold = theThreshold; }
+
+  //! Return bloom threshold.
+  float BloomThreshold() const { return myBloomThreshold; }
+
+  //! Set bloom intensity (Phase 14). Default: 0.3
+  void SetBloomIntensity(float theIntensity) { myBloomIntensity = theIntensity; }
+
+  //! Return bloom intensity.
+  float BloomIntensity() const { return myBloomIntensity; }
+
 private:
 
 #ifdef __OBJC__
@@ -293,6 +367,13 @@ private:
   id<MTLComputePipelineState> myAdaptivePathTracePipeline; //!< Phase 11: Adaptive path tracing
   id<MTLComputePipelineState> myResetAdaptiveStatsPipeline; //!< Phase 11: Reset adaptive stats
   id<MTLComputePipelineState> myEnvMapPathTracePipeline;   //!< Phase 12: Path tracing with environment map
+  id<MTLComputePipelineState> myDOFRayGenPipeline;         //!< Phase 13: DOF ray generation
+  id<MTLComputePipelineState> myDOFPathTracePipeline;      //!< Phase 13: DOF path tracing
+  id<MTLComputePipelineState> myToneMappingPipeline;       //!< Phase 14: Tone mapping
+  id<MTLComputePipelineState> myExtractBrightPipeline;     //!< Phase 14: Bloom brightness extraction
+  id<MTLComputePipelineState> myBlurHorizontalPipeline;    //!< Phase 14: Bloom horizontal blur
+  id<MTLComputePipelineState> myBlurVerticalPipeline;      //!< Phase 14: Bloom vertical blur
+  id<MTLComputePipelineState> myApplyBloomPipeline;        //!< Phase 14: Apply bloom
 
   // Buffers
   id<MTLBuffer> myVertexBuffer;
@@ -330,6 +411,11 @@ private:
   id<MTLTexture> myEnvironmentMap;           //!< Phase 12: HDR environment map (equirectangular)
   id<MTLSamplerState> myEnvMapSampler;       //!< Phase 12: Environment map sampler
 
+  // Phase 14: Tone mapping and bloom
+  id<MTLTexture> myHDRBuffer;                //!< Phase 14: HDR render buffer
+  id<MTLTexture> myBrightBuffer;             //!< Phase 14: Extracted bright pixels
+  id<MTLTexture> myBloomTempBuffer;          //!< Phase 14: Bloom blur temp buffer
+
   // Shader library
   id<MTLLibrary> myShaderLibrary;
 #else
@@ -354,6 +440,13 @@ private:
   void* myAdaptivePathTracePipeline;
   void* myResetAdaptiveStatsPipeline;
   void* myEnvMapPathTracePipeline;
+  void* myDOFRayGenPipeline;
+  void* myDOFPathTracePipeline;
+  void* myToneMappingPipeline;
+  void* myExtractBrightPipeline;
+  void* myBlurHorizontalPipeline;
+  void* myBlurVerticalPipeline;
+  void* myApplyBloomPipeline;
   void* myVertexBuffer;
   void* myIndexBuffer;
   void* myMaterialBuffer;
@@ -380,6 +473,9 @@ private:
   void* myPixelStatsBuffer;
   void* myEnvironmentMap;
   void* myEnvMapSampler;
+  void* myHDRBuffer;
+  void* myBrightBuffer;
+  void* myBloomTempBuffer;
   void* myShaderLibrary;
 #endif
 
@@ -403,6 +499,17 @@ private:
   uint32_t myMaxSamples;           //!< Phase 11: Maximum samples per pixel
   float myEnvMapIntensity;         //!< Phase 12: Environment map intensity multiplier
   float myEnvMapRotation;          //!< Phase 12: Environment map rotation in radians
+  bool myDOFEnabled;               //!< Phase 13: Enable depth of field
+  float myAperture;                //!< Phase 13: Aperture radius (0 = pinhole)
+  float myFocalDistance;           //!< Phase 13: Focal distance
+  bool myToneMappingEnabled;       //!< Phase 14: Enable tone mapping
+  ToneMappingMode myToneMappingMode; //!< Phase 14: Tone mapping operator
+  float myExposure;                //!< Phase 14: Exposure adjustment (EV)
+  float myGamma;                   //!< Phase 14: Gamma correction value
+  float myWhitePoint;              //!< Phase 14: White point for Reinhard/Uncharted2
+  bool myBloomEnabled;             //!< Phase 14: Enable bloom post-process
+  float myBloomThreshold;          //!< Phase 14: Bloom brightness threshold
+  float myBloomIntensity;          //!< Phase 14: Bloom strength
 };
 
 DEFINE_STANDARD_HANDLE(Metal_RayTracing, Standard_Transient)
