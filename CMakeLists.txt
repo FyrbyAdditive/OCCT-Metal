@@ -1013,10 +1013,11 @@ if (3RDPARTY_INCLUDE_DIRS)
 endif()
 
 # Ensure the include directory exists
-file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/${INSTALL_DIR_INCLUDE}")
+# Use CMAKE_CURRENT_BINARY_DIR to support add_subdirectory usage
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${INSTALL_DIR_INCLUDE}")
 
 # include <cmake binary folder>/inc
-include_directories (${CMAKE_BINARY_DIR}/${INSTALL_DIR_INCLUDE})
+include_directories (${CMAKE_CURRENT_BINARY_DIR}/${INSTALL_DIR_INCLUDE})
 
 # check all 3rdparty library paths
 string (REGEX REPLACE ";" " " 3RDPARTY_NO_LIBS "${3RDPARTY_NO_LIBS}")
@@ -1098,10 +1099,11 @@ else()
 endif()
 
 string(TIMESTAMP CURRENT_TIME "%H:%M:%S")
-message (STATUS "\nInfo: \(${CURRENT_TIME}\) Start collecting all OCCT header files into ${CMAKE_BINARY_DIR}/${INSTALL_DIR_INCLUDE} ...")
+message (STATUS "\nInfo: \(${CURRENT_TIME}\) Start collecting all OCCT header files into ${CMAKE_CURRENT_BINARY_DIR}/${INSTALL_DIR_INCLUDE} ...")
 
 # collect all the headers to <binary dir>/inc folder
-COLLECT_AND_INSTALL_OCCT_HEADER_FILES ("${CMAKE_BINARY_DIR}" "${BUILD_TOOLKITS}" "src" "${INSTALL_DIR_INCLUDE}")
+# Use CMAKE_CURRENT_BINARY_DIR to support add_subdirectory usage
+COLLECT_AND_INSTALL_OCCT_HEADER_FILES ("${CMAKE_CURRENT_BINARY_DIR}" "${BUILD_TOOLKITS}" "src" "${INSTALL_DIR_INCLUDE}")
 
 # Create and install Standard_Version.hxx
 CONFIGURE_AND_INSTALL_VERSION_HEADER()
