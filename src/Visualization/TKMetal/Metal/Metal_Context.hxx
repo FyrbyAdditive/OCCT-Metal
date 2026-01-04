@@ -27,6 +27,8 @@
 #include <NCollection_Shared.hxx>
 #include <Standard_Transient.hxx>
 #include <TCollection_AsciiString.hxx>
+#include <TCollection_ExtendedString.hxx>
+#include <TColStd_PackedMapOfInteger.hxx>
 
 #ifdef __OBJC__
 #import <dispatch/dispatch.h>
@@ -44,6 +46,40 @@ class Metal_Window;
 
 //! Maximum number of frames that can be in flight simultaneously for triple-buffering.
 static const int Metal_MaxFramesInFlight = 3;
+
+//! Number of debug message source types.
+static const int Metal_NbDebugSources = 6;
+
+//! Debug message source type (matches GL_DEBUG_SOURCE_* for API consistency).
+enum Metal_DebugSource
+{
+  Metal_DebugSource_API            = 0, //!< Metal API calls
+  Metal_DebugSource_ShaderCompiler = 1, //!< Shader compiler messages
+  Metal_DebugSource_WindowSystem   = 2, //!< Window system events
+  Metal_DebugSource_ThirdParty     = 3, //!< Third party tools
+  Metal_DebugSource_Application    = 4, //!< Application messages
+  Metal_DebugSource_Other          = 5  //!< Other sources
+};
+
+//! Debug message type.
+enum Metal_DebugType
+{
+  Metal_DebugType_Error            = 0, //!< Error message
+  Metal_DebugType_Deprecated       = 1, //!< Deprecated behavior
+  Metal_DebugType_UndefinedBehavior= 2, //!< Undefined behavior
+  Metal_DebugType_Performance      = 3, //!< Performance issue
+  Metal_DebugType_Portability      = 4, //!< Portability issue
+  Metal_DebugType_Other            = 5  //!< Other message
+};
+
+//! Debug message severity.
+enum Metal_DebugSeverity
+{
+  Metal_DebugSeverity_High         = 0, //!< High severity (errors)
+  Metal_DebugSeverity_Medium       = 1, //!< Medium severity (warnings)
+  Metal_DebugSeverity_Low          = 2, //!< Low severity (info)
+  Metal_DebugSeverity_Notification = 3  //!< Notification (verbose)
+};
 
 //! This class manages the Metal context including device, command queue,
 //! and shared resources. It is the central hub for all Metal operations.
@@ -342,6 +378,54 @@ public: //! @name Diagnostics
   //! Return memory info string.
   Standard_EXPORT TCollection_AsciiString MemoryInfo() const;
 
+public: //! @name Debug output (matches OpenGL backend API for consistency)
+
+  //! Push debug message to messenger.
+  //! @param theSource   message source (Metal_DebugSource_API, etc.)
+  //! @param theType     message type (Metal_DebugType_Error, etc.)
+  //! @param theId       unique message ID
+  //! @param theSeverity message severity (Metal_DebugSeverity_High, etc.)
+  //! @param theMessage  the message text
+  Standard_EXPORT void PushMessage(unsigned int theSource,
+                                   unsigned int theType,
+                                   unsigned int theId,
+                                   unsigned int theSeverity,
+                                   const TCollection_ExtendedString& theMessage);
+
+  //! Add message ID to filter (suppress future messages with this ID).
+  //! @param theSource message source
+  //! @param theId     message ID to filter
+  //! @return true if message was added to filter
+  Standard_EXPORT bool ExcludeMessage(unsigned int theSource, unsigned int theId);
+
+  //! Remove message ID from filter (allow messages with this ID again).
+  //! @param theSource message source
+  //! @param theId     message ID to include
+  //! @return true if message was removed from filter
+  Standard_EXPORT bool IncludeMessage(unsigned int theSource, unsigned int theId);
+
+#ifdef __OBJC__
+  //! Push debug group marker (visible in Metal GPU debugger/profiler).
+  //! @param theEncoder command encoder to apply marker to
+  //! @param theName    debug group name
+  Standard_EXPORT void PushDebugGroup(id<MTLRenderCommandEncoder> theEncoder,
+                                      const TCollection_AsciiString& theName);
+
+  //! Pop debug group marker.
+  //! @param theEncoder command encoder
+  Standard_EXPORT void PopDebugGroup(id<MTLRenderCommandEncoder> theEncoder);
+
+  //! Push debug group marker on command buffer (for compute/blit work).
+  //! @param theBuffer command buffer to apply marker to
+  //! @param theName   debug group name
+  Standard_EXPORT void PushDebugGroup(id<MTLCommandBuffer> theBuffer,
+                                      const TCollection_AsciiString& theName);
+
+  //! Pop debug group marker from command buffer.
+  //! @param theBuffer command buffer
+  Standard_EXPORT void PopDebugGroup(id<MTLCommandBuffer> theBuffer);
+#endif
+
 private:
 
   //! Query device capabilities.
@@ -410,6 +494,9 @@ private:
   occ::handle<Graphic3d_Camera> myCamera;         //!< Current camera
   class Metal_ShaderManager* myShaderManager;     //!< Shader manager
   occ::handle<class Metal_FrameStats> myFrameStats; //!< Frame statistics
+
+  // Debug output
+  TColStd_PackedMapOfInteger myMsgFilters[Metal_NbDebugSources]; //!< Message filters per source
 };
 
 #endif // Metal_Context_HeaderFile

@@ -1266,3 +1266,132 @@ void Metal_Context::BindProgram(void* theProgram)
   // In Metal, shader programs are bound via pipeline state objects
   (void)theProgram;
 }
+
+// =======================================================================
+// function : PushMessage
+// purpose  : Push debug message to messenger
+// =======================================================================
+void Metal_Context::PushMessage(unsigned int theSource,
+                                unsigned int theType,
+                                unsigned int theId,
+                                unsigned int theSeverity,
+                                const TCollection_ExtendedString& theMessage)
+{
+  // Check if message is filtered
+  if (theSource < Metal_NbDebugSources && myMsgFilters[theSource].Contains((Standard_Integer)theId))
+  {
+    return;
+  }
+
+  // Map source to human-readable string
+  static const char* SOURCES[] = {"API", "Shader", "WindowSystem", "ThirdParty", "Application", "Other"};
+  const char* aSourceStr = (theSource < 6) ? SOURCES[theSource] : "Unknown";
+
+  // Map type to human-readable string
+  static const char* TYPES[] = {"Error", "Deprecated", "UndefinedBehavior", "Performance", "Portability", "Other"};
+  const char* aTypeStr = (theType < 6) ? TYPES[theType] : "Unknown";
+
+  // Build message prefix
+  TCollection_AsciiString aMsg = TCollection_AsciiString("[Metal:")
+    + aSourceStr + ":"
+    + aTypeStr + ":"
+    + TCollection_AsciiString((Standard_Integer)theId) + "] "
+    + TCollection_AsciiString(theMessage);
+
+  // Map severity to Message_Gravity
+  Message_Gravity aGravity;
+  switch (theSeverity)
+  {
+    case Metal_DebugSeverity_High:
+      aGravity = Message_Alarm;
+      break;
+    case Metal_DebugSeverity_Medium:
+      aGravity = Message_Warning;
+      break;
+    case Metal_DebugSeverity_Low:
+      aGravity = Message_Info;
+      break;
+    case Metal_DebugSeverity_Notification:
+    default:
+      aGravity = Message_Trace;
+      break;
+  }
+
+  myMsgContext->Send(aMsg, aGravity);
+}
+
+// =======================================================================
+// function : ExcludeMessage
+// purpose  : Add message ID to filter (suppress future messages)
+// =======================================================================
+bool Metal_Context::ExcludeMessage(unsigned int theSource, unsigned int theId)
+{
+  if (theSource >= Metal_NbDebugSources)
+  {
+    return false;
+  }
+  return myMsgFilters[theSource].Add((Standard_Integer)theId);
+}
+
+// =======================================================================
+// function : IncludeMessage
+// purpose  : Remove message ID from filter (allow messages again)
+// =======================================================================
+bool Metal_Context::IncludeMessage(unsigned int theSource, unsigned int theId)
+{
+  if (theSource >= Metal_NbDebugSources)
+  {
+    return false;
+  }
+  return myMsgFilters[theSource].Remove((Standard_Integer)theId);
+}
+
+// =======================================================================
+// function : PushDebugGroup (render encoder)
+// purpose  : Push debug group marker for GPU profiler
+// =======================================================================
+void Metal_Context::PushDebugGroup(id<MTLRenderCommandEncoder> theEncoder,
+                                   const TCollection_AsciiString& theName)
+{
+  if (myCaps->contextDebug && theEncoder != nil)
+  {
+    [theEncoder pushDebugGroup:[NSString stringWithUTF8String:theName.ToCString()]];
+  }
+}
+
+// =======================================================================
+// function : PopDebugGroup (render encoder)
+// purpose  : Pop debug group marker
+// =======================================================================
+void Metal_Context::PopDebugGroup(id<MTLRenderCommandEncoder> theEncoder)
+{
+  if (myCaps->contextDebug && theEncoder != nil)
+  {
+    [theEncoder popDebugGroup];
+  }
+}
+
+// =======================================================================
+// function : PushDebugGroup (command buffer)
+// purpose  : Push debug group marker on command buffer
+// =======================================================================
+void Metal_Context::PushDebugGroup(id<MTLCommandBuffer> theBuffer,
+                                   const TCollection_AsciiString& theName)
+{
+  if (myCaps->contextDebug && theBuffer != nil)
+  {
+    [theBuffer pushDebugGroup:[NSString stringWithUTF8String:theName.ToCString()]];
+  }
+}
+
+// =======================================================================
+// function : PopDebugGroup (command buffer)
+// purpose  : Pop debug group marker from command buffer
+// =======================================================================
+void Metal_Context::PopDebugGroup(id<MTLCommandBuffer> theBuffer)
+{
+  if (myCaps->contextDebug && theBuffer != nil)
+  {
+    [theBuffer popDebugGroup];
+  }
+}
