@@ -260,9 +260,6 @@ private: //! @name Internal rendering helpers
   //! Initialize or resize the depth buffer.
   void initDepthBuffer(int theWidth, int theHeight);
 
-  //! Draw a test triangle to verify rendering pipeline.
-  void drawTestTriangle(void* theEncoder, int theWidth, int theHeight);
-
   //! Draw gradient background.
   void drawGradientBackground(void* theEncoder, int theWidth, int theHeight);
 
