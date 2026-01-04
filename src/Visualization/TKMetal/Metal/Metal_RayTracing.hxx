@@ -214,6 +214,32 @@ public:
   //! Return true if BSDF sampling is enabled.
   bool IsBSDFSamplingEnabled() const { return myBSDFSamplingEnabled; }
 
+  //! Set adaptive sampling enabled (Phase 11).
+  //! When enabled, pixels converge independently based on variance.
+  void SetAdaptiveSamplingEnabled(bool theEnabled) { myAdaptiveSamplingEnabled = theEnabled; }
+
+  //! Return true if adaptive sampling is enabled.
+  bool IsAdaptiveSamplingEnabled() const { return myAdaptiveSamplingEnabled; }
+
+  //! Set variance threshold for adaptive sampling (Phase 11).
+  //! Lower values = higher quality, more samples. Default: 0.01
+  void SetVarianceThreshold(float theThreshold) { myVarianceThreshold = theThreshold; }
+
+  //! Return variance threshold for adaptive sampling.
+  float VarianceThreshold() const { return myVarianceThreshold; }
+
+  //! Set minimum samples before checking variance (Phase 11). Default: 16
+  void SetMinSamples(uint32_t theMinSamples) { myMinSamples = theMinSamples; }
+
+  //! Return minimum samples for adaptive sampling.
+  uint32_t MinSamples() const { return myMinSamples; }
+
+  //! Set maximum samples per pixel (Phase 11). Default: 1024
+  void SetMaxSamples(uint32_t theMaxSamples) { myMaxSamples = theMaxSamples; }
+
+  //! Return maximum samples for adaptive sampling.
+  uint32_t MaxSamples() const { return myMaxSamples; }
+
 private:
 
 #ifdef __OBJC__
@@ -237,6 +263,9 @@ private:
   id<MTLComputePipelineState> myPathTracePipeline;         //!< Phase 9: Path tracing kernel
   id<MTLComputePipelineState> myPathTraceBSDFPipeline;     //!< Phase 10: Path tracing with GGX BSDF
   id<MTLComputePipelineState> myAccumulatePipeline;        //!< Phase 9: Accumulation kernel
+  id<MTLComputePipelineState> myAdaptiveRayGenPipeline;    //!< Phase 11: Adaptive ray generation
+  id<MTLComputePipelineState> myAdaptivePathTracePipeline; //!< Phase 11: Adaptive path tracing
+  id<MTLComputePipelineState> myResetAdaptiveStatsPipeline; //!< Phase 11: Reset adaptive stats
 
   // Buffers
   id<MTLBuffer> myVertexBuffer;
@@ -267,6 +296,9 @@ private:
   id<MTLTexture> myAccumulationBuffer;       //!< Phase 9: Accumulated radiance (RGBA32Float)
   id<MTLBuffer> myRandomSeedBuffer;          //!< Phase 9: Per-pixel RNG state
 
+  // Phase 11: Adaptive sampling buffers
+  id<MTLBuffer> myPixelStatsBuffer;          //!< Phase 11: Per-pixel variance statistics
+
   // Shader library
   id<MTLLibrary> myShaderLibrary;
 #else
@@ -287,6 +319,9 @@ private:
   void* myPathTracePipeline;
   void* myPathTraceBSDFPipeline;
   void* myAccumulatePipeline;
+  void* myAdaptiveRayGenPipeline;
+  void* myAdaptivePathTracePipeline;
+  void* myResetAdaptiveStatsPipeline;
   void* myVertexBuffer;
   void* myIndexBuffer;
   void* myMaterialBuffer;
@@ -310,6 +345,7 @@ private:
   void* myTextureSampler;
   void* myAccumulationBuffer;
   void* myRandomSeedBuffer;
+  void* myPixelStatsBuffer;
   void* myShaderLibrary;
 #endif
 
@@ -324,8 +360,12 @@ private:
   bool myTexturingEnabled;
   bool myPathTracingEnabled;
   bool myBSDFSamplingEnabled;      //!< Phase 10: Use Cook-Torrance GGX BSDF
+  bool myAdaptiveSamplingEnabled;  //!< Phase 11: Use adaptive sampling
   bool myIsValid;
   uint32_t myFrameIndex;           //!< Phase 9: Current frame for accumulation
+  float myVarianceThreshold;       //!< Phase 11: Variance threshold for convergence
+  uint32_t myMinSamples;           //!< Phase 11: Minimum samples before checking variance
+  uint32_t myMaxSamples;           //!< Phase 11: Maximum samples per pixel
 };
 
 DEFINE_STANDARD_HANDLE(Metal_RayTracing, Standard_Transient)

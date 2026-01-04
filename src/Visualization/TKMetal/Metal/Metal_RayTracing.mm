@@ -1463,6 +1463,235 @@ kernel void pathTraceBSDF(
     output.write(float4(saturate(displayColor), 1.0f), tid);
 }
 
+// ==========================================================================
+// Phase 11: Adaptive Sampling with Variance Tracking
+// ==========================================================================
+
+// Adaptive sampling statistics per pixel (32 bytes - use float4 for reliable alignment)
+struct AdaptivePixelStats {
+    float4 mean;           // Running mean of radiance (xyz), w unused
+    float4 meanSquared;    // Running mean of radiance squared (xyz), w unused
+    uint sampleCount;      // Number of samples taken
+    uint converged;        // 1 if pixel has converged
+    uint pad0;
+    uint pad1;
+};
+
+// Extended camera params for adaptive sampling
+struct AdaptiveCameraParams {
+    float3 origin;
+    float3 forward;
+    float3 right;
+    float3 up;
+    float fov;
+    float2 resolution;
+    int maxBounces;
+    int shadowsEnabled;
+    int reflectionsEnabled;
+    int lightCount;
+    uint frameIndex;
+    float varianceThreshold;  // Stop sampling when variance below this
+    uint minSamples;          // Minimum samples before checking variance
+    uint maxSamples;          // Maximum samples per pixel
+};
+
+// Generate jittered rays for adaptive path tracing
+kernel void adaptiveRayGen(
+    device Ray* rays [[buffer(0)]],
+    constant AdaptiveCameraParams& camera [[buffer(1)]],
+    device uint* rngSeeds [[buffer(2)]],
+    device const AdaptivePixelStats* pixelStats [[buffer(3)]],
+    uint2 tid [[thread_position_in_grid]])
+{
+    if (tid.x >= uint(camera.resolution.x) || tid.y >= uint(camera.resolution.y)) return;
+
+    uint idx = tid.y * uint(camera.resolution.x) + tid.x;
+
+    // Skip converged pixels
+    if (pixelStats[idx].converged > 0 && pixelStats[idx].sampleCount >= camera.minSamples) {
+        rays[idx].maxDistance = -1.0f;  // Mark ray as invalid
+        return;
+    }
+
+    uint seed = rngSeeds[idx];
+    if (camera.frameIndex == 0) {
+        seed = pcg_hash(tid.x + tid.y * uint(camera.resolution.x) + 12345u);
+    }
+
+    float2 jitter = random_float2(seed);
+    float u = (float(tid.x) + jitter.x) / camera.resolution.x * 2.0f - 1.0f;
+    float v = (float(tid.y) + jitter.y) / camera.resolution.y * 2.0f - 1.0f;
+
+    float aspectRatio = camera.resolution.x / camera.resolution.y;
+    float halfHeight = tan(camera.fov * 0.5f);
+    float halfWidth = aspectRatio * halfHeight;
+
+    float3 direction = normalize(camera.forward + u * halfWidth * camera.right - v * halfHeight * camera.up);
+
+    rays[idx].origin = camera.origin;
+    rays[idx].minDistance = 0.001f;
+    rays[idx].direction = direction;
+    rays[idx].maxDistance = INFINITY;
+
+    rngSeeds[idx] = seed;
+}
+
+// Adaptive path trace with variance tracking using Welford's online algorithm
+kernel void adaptivePathTrace(
+    texture2d<float, access::read_write> output [[texture(0)]],
+    device const Intersection* intersections [[buffer(0)]],
+    device const Ray* rays [[buffer(1)]],
+    constant AdaptiveCameraParams& camera [[buffer(2)]],
+    device const float3* vertices [[buffer(3)]],
+    device const uint* indices [[buffer(4)]],
+    constant RaytraceMaterial* materials [[buffer(5)]],
+    device const int* materialIndices [[buffer(6)]],
+    constant RaytraceLight* lights [[buffer(7)]],
+    device uint* rngSeeds [[buffer(8)]],
+    device AdaptivePixelStats* pixelStats [[buffer(9)]],
+    uint2 tid [[thread_position_in_grid]])
+{
+    if (tid.x >= uint(camera.resolution.x) || tid.y >= uint(camera.resolution.y)) return;
+
+    uint idx = tid.y * uint(camera.resolution.x) + tid.x;
+
+    // Skip converged pixels or invalid rays
+    if (rays[idx].maxDistance < 0.0f) {
+        return;
+    }
+
+    AdaptivePixelStats stats = pixelStats[idx];
+
+    // Skip if already converged and have enough samples
+    if (stats.converged > 0 && stats.sampleCount >= camera.minSamples) {
+        return;
+    }
+
+    Intersection isect = intersections[idx];
+    uint seed = rngSeeds[idx];
+
+    float3 radiance = float3(0.0f);
+    float3 rayDir = normalize(float3(rays[idx].direction));
+
+    if (isect.distance < 0.0f) {
+        // Miss - sky color
+        float t = 0.5f * (rayDir.y + 1.0f);
+        radiance = mix(float3(0.5f, 0.7f, 1.0f), float3(0.8f, 0.9f, 1.0f), t) * 0.3f;
+    }
+    else {
+        uint triIdx = uint(isect.primitiveIndex);
+        uint i0 = indices[triIdx * 3 + 0];
+        uint i1 = indices[triIdx * 3 + 1];
+        uint i2 = indices[triIdx * 3 + 2];
+
+        float3 v0 = vertices[i0];
+        float3 v1 = vertices[i1];
+        float3 v2 = vertices[i2];
+
+        float2 bary = isect.coordinates;
+        float3 hitPoint = v0 * (1.0f - bary.x - bary.y) + v1 * bary.x + v2 * bary.y;
+
+        float3 edge1 = v1 - v0;
+        float3 edge2 = v2 - v0;
+        float3 N = normalize(cross(edge1, edge2));
+
+        if (dot(N, rayDir) > 0.0f) {
+            N = -N;
+        }
+
+        int matIdx = materialIndices[triIdx];
+        RaytraceMaterial mat = materials[matIdx];
+        float3 albedo = mat.diffuse.rgb;
+        float roughness = clamp(mat.specular.w, 0.04f, 1.0f);
+        float metallic = clamp(mat.reflection.w, 0.0f, 1.0f);
+
+        float3 V = -rayDir;
+
+        radiance += mat.emission.rgb;
+
+        // Direct lighting with Cook-Torrance BRDF
+        for (int l = 0; l < camera.lightCount; l++) {
+            RaytraceLight light = lights[l];
+            float3 lightDir;
+            float3 lightIntensity = light.emission.rgb * light.emission.w;
+
+            if (light.position.w < 0.5f) {
+                lightDir = normalize(-light.position.xyz);
+            } else {
+                float3 toLight = light.position.xyz - hitPoint;
+                float lightDist = length(toLight);
+                lightDir = toLight / lightDist;
+                lightIntensity *= 1.0f / (1.0f + 0.05f * lightDist * lightDist);
+            }
+
+            float3 brdf = evaluateCookTorranceBRDF(N, V, lightDir, albedo, metallic, roughness);
+            radiance += brdf * lightIntensity;
+        }
+
+        // Indirect contribution via cosine-weighted hemisphere sampling
+        float2 u = random_float2(seed);
+        float3 sampleDir = sample_cosine_hemisphere(u, N);
+        float NdotL = max(dot(N, sampleDir), 0.0f);
+        if (NdotL > 0.0f) {
+            float3 brdf = evaluateCookTorranceBRDF(N, V, sampleDir, albedo, metallic, roughness);
+            float pdf = pdfCosineHemisphere(NdotL);
+            radiance += brdf * 0.2f / max(pdf, 0.0001f);
+        }
+    }
+
+    rngSeeds[idx] = seed;
+
+    // Update running statistics using Welford's online algorithm
+    uint n = stats.sampleCount + 1;
+    float3 oldMean = stats.mean.xyz;
+    float3 delta = radiance - oldMean;
+    float3 newMean = oldMean + delta / float(n);
+    float3 delta2 = radiance - newMean;
+    float3 newMeanSquared = stats.meanSquared.xyz + delta * delta2;
+
+    stats.mean = float4(newMean, 0.0f);
+    stats.meanSquared = float4(newMeanSquared, 0.0f);
+    stats.sampleCount = n;
+
+    // Check for convergence after minimum samples
+    if (n >= camera.minSamples) {
+        // Compute variance
+        float3 variance = newMeanSquared / float(n);
+        float maxVariance = max(variance.x, max(variance.y, variance.z));
+
+        // Normalize by mean to get relative variance
+        float meanLuminance = dot(newMean, float3(0.2126f, 0.7152f, 0.0722f));
+        float relativeVariance = maxVariance / max(meanLuminance * meanLuminance, 0.0001f);
+
+        if (relativeVariance < camera.varianceThreshold || n >= camera.maxSamples) {
+            stats.converged = 1;
+        }
+    }
+
+    pixelStats[idx] = stats;
+
+    // Write accumulated result with gamma correction
+    float3 displayColor = pow(newMean, float3(1.0f / 2.2f));
+    output.write(float4(saturate(displayColor), 1.0f), tid);
+}
+
+// Reset adaptive sampling statistics
+kernel void resetAdaptiveStats(
+    device AdaptivePixelStats* pixelStats [[buffer(0)]],
+    constant uint2& resolution [[buffer(1)]],
+    uint2 tid [[thread_position_in_grid]])
+{
+    if (tid.x >= resolution.x || tid.y >= resolution.y) return;
+
+    uint idx = tid.y * resolution.x + tid.x;
+    pixelStats[idx].mean = float4(0.0f);
+    pixelStats[idx].meanSquared = float4(0.0f);
+    pixelStats[idx].sampleCount = 0;
+    pixelStats[idx].converged = 0;
+    pixelStats[idx].pad0 = 0;
+    pixelStats[idx].pad1 = 0;
+}
+
 // Phase 8: Full shading with textures, reflections, and refractions
 kernel void shadeWithTextures(
   texture2d<float, access::write> output [[texture(0)]],
@@ -1669,8 +1898,12 @@ Metal_RayTracing::Metal_RayTracing()
   myPathTracePipeline(nil),
   myPathTraceBSDFPipeline(nil),
   myAccumulatePipeline(nil),
+  myAdaptiveRayGenPipeline(nil),
+  myAdaptivePathTracePipeline(nil),
+  myResetAdaptiveStatsPipeline(nil),
   myAccumulationBuffer(nil),
   myRandomSeedBuffer(nil),
+  myPixelStatsBuffer(nil),
   myVertexCount(0),
   myTriangleCount(0),
   myMaterialCount(0),
@@ -1682,8 +1915,12 @@ Metal_RayTracing::Metal_RayTracing()
   myTexturingEnabled(false),
   myPathTracingEnabled(false),
   myBSDFSamplingEnabled(false),
+  myAdaptiveSamplingEnabled(false),
   myIsValid(false),
-  myFrameIndex(0)
+  myFrameIndex(0),
+  myVarianceThreshold(0.01f),
+  myMinSamples(16),
+  myMaxSamples(1024)
 {
 }
 
@@ -1946,6 +2183,45 @@ bool Metal_RayTracing::Init(Metal_Context* theCtx)
     }
   }
 
+  // Phase 11: Create adaptive ray generation pipeline
+  id<MTLFunction> aAdaptiveRayGenFunc = [myShaderLibrary newFunctionWithName:@"adaptiveRayGen"];
+  if (aAdaptiveRayGenFunc != nil)
+  {
+    myAdaptiveRayGenPipeline = [aDevice newComputePipelineStateWithFunction:aAdaptiveRayGenFunc error:&anError];
+    if (myAdaptiveRayGenPipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: adaptiveRayGen pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
+  // Phase 11: Create adaptive path tracing pipeline
+  id<MTLFunction> aAdaptivePathTraceFunc = [myShaderLibrary newFunctionWithName:@"adaptivePathTrace"];
+  if (aAdaptivePathTraceFunc != nil)
+  {
+    myAdaptivePathTracePipeline = [aDevice newComputePipelineStateWithFunction:aAdaptivePathTraceFunc error:&anError];
+    if (myAdaptivePathTracePipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: adaptivePathTrace pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
+  // Phase 11: Create reset adaptive stats pipeline
+  id<MTLFunction> aResetAdaptiveStatsFunc = [myShaderLibrary newFunctionWithName:@"resetAdaptiveStats"];
+  if (aResetAdaptiveStatsFunc != nil)
+  {
+    myResetAdaptiveStatsPipeline = [aDevice newComputePipelineStateWithFunction:aResetAdaptiveStatsFunc error:&anError];
+    if (myResetAdaptiveStatsPipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: resetAdaptiveStats pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
   // Create ray intersector
   myRayIntersector = [[MPSRayIntersector alloc] initWithDevice:aDevice];
   myRayIntersector.rayDataType = MPSRayDataTypeOriginMinDistanceDirectionMaxDistance;
@@ -1981,6 +2257,9 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myPathTracePipeline = nil;
   myPathTraceBSDFPipeline = nil;
   myAccumulatePipeline = nil;
+  myAdaptiveRayGenPipeline = nil;
+  myAdaptivePathTracePipeline = nil;
+  myResetAdaptiveStatsPipeline = nil;
   myVertexBuffer = nil;
   myIndexBuffer = nil;
   myMaterialBuffer = nil;
@@ -2004,6 +2283,7 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myTextureSampler = nil;
   myAccumulationBuffer = nil;
   myRandomSeedBuffer = nil;
+  myPixelStatsBuffer = nil;
   myShaderLibrary = nil;
 
   myVertexCount = 0;
@@ -2335,6 +2615,129 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
       myRefractionColorBuffer = [aDevice newBufferWithLength:aColorBufferSize
                                                      options:MTLResourceStorageModePrivate];
     }
+  }
+
+  // Phase 11: Adaptive sampling mode - variance-based convergence per pixel
+  bool aUseAdaptiveSampling = myAdaptiveSamplingEnabled && myPathTracingEnabled
+                           && myAdaptiveRayGenPipeline != nil && myAdaptivePathTracePipeline != nil;
+  if (aUseAdaptiveSampling)
+  {
+    // Allocate random seed buffer for per-pixel RNG state
+    size_t aSeedBufferSize = aRayCount * sizeof(uint32_t);
+    if (myRandomSeedBuffer == nil || [myRandomSeedBuffer length] < aSeedBufferSize)
+    {
+      myRandomSeedBuffer = [aDevice newBufferWithLength:aSeedBufferSize
+                                                options:MTLResourceStorageModePrivate];
+    }
+
+    // Allocate pixel stats buffer (32 bytes per pixel for AdaptivePixelStats)
+    size_t aStatsBufferSize = aRayCount * 32;  // sizeof(AdaptivePixelStats) = 32 bytes
+    if (myPixelStatsBuffer == nil || [myPixelStatsBuffer length] < aStatsBufferSize)
+    {
+      myPixelStatsBuffer = [aDevice newBufferWithLength:aStatsBufferSize
+                                                options:MTLResourceStorageModePrivate];
+    }
+
+    // Adaptive camera parameters (extended with variance threshold and sample limits)
+    struct AdaptiveCameraParams {
+      simd_float3 origin;
+      simd_float3 forward;
+      simd_float3 right;
+      simd_float3 up;
+      float fov;
+      simd_float2 resolution;
+      int maxBounces;
+      int shadowsEnabled;
+      int reflectionsEnabled;
+      int lightCount;
+      uint32_t frameIndex;
+      float varianceThreshold;
+      uint32_t minSamples;
+      uint32_t maxSamples;
+    } aAdaptiveCameraParams;
+
+    // Compute camera basis vectors
+    simd_float3 aOrigin = simd_make_float3(theCameraOrigin.x(), theCameraOrigin.y(), theCameraOrigin.z());
+    simd_float3 aLookAt = simd_make_float3(theCameraLookAt.x(), theCameraLookAt.y(), theCameraLookAt.z());
+    simd_float3 aUp = simd_make_float3(theCameraUp.x(), theCameraUp.y(), theCameraUp.z());
+    simd_float3 aForward = simd_normalize(aLookAt - aOrigin);
+    simd_float3 aRight = simd_normalize(simd_cross(aForward, aUp));
+    simd_float3 aCamUp = simd_cross(aRight, aForward);
+
+    aAdaptiveCameraParams.origin = aOrigin;
+    aAdaptiveCameraParams.forward = aForward;
+    aAdaptiveCameraParams.right = aRight;
+    aAdaptiveCameraParams.up = aCamUp;
+    aAdaptiveCameraParams.fov = theFov;
+    aAdaptiveCameraParams.resolution = simd_make_float2(static_cast<float>(aWidth), static_cast<float>(aHeight));
+    aAdaptiveCameraParams.maxBounces = myMaxBounces;
+    aAdaptiveCameraParams.shadowsEnabled = myShadowsEnabled ? 1 : 0;
+    aAdaptiveCameraParams.reflectionsEnabled = myReflectionsEnabled ? 1 : 0;
+    aAdaptiveCameraParams.lightCount = myLightCount;
+    aAdaptiveCameraParams.frameIndex = myFrameIndex;
+    aAdaptiveCameraParams.varianceThreshold = myVarianceThreshold;
+    aAdaptiveCameraParams.minSamples = myMinSamples;
+    aAdaptiveCameraParams.maxSamples = myMaxSamples;
+
+    MTLSize aThreadgroupSize = MTLSizeMake(8, 8, 1);
+    MTLSize aThreadgroups = MTLSizeMake((aWidth + 7) / 8, (aHeight + 7) / 8, 1);
+
+    // Step 0: Reset stats on first frame
+    if (myFrameIndex == 0 && myResetAdaptiveStatsPipeline != nil)
+    {
+      simd_uint2 aRes = simd_make_uint2(static_cast<uint32_t>(aWidth), static_cast<uint32_t>(aHeight));
+      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+      [anEncoder setComputePipelineState:myResetAdaptiveStatsPipeline];
+      [anEncoder setBuffer:myPixelStatsBuffer offset:0 atIndex:0];
+      [anEncoder setBytes:&aRes length:sizeof(aRes) atIndex:1];
+      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+      [anEncoder endEncoding];
+    }
+
+    // Step 1: Generate jittered rays (skipping converged pixels)
+    {
+      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+      [anEncoder setComputePipelineState:myAdaptiveRayGenPipeline];
+      [anEncoder setBuffer:myRayBuffer offset:0 atIndex:0];
+      [anEncoder setBytes:&aAdaptiveCameraParams length:sizeof(aAdaptiveCameraParams) atIndex:1];
+      [anEncoder setBuffer:myRandomSeedBuffer offset:0 atIndex:2];
+      [anEncoder setBuffer:myPixelStatsBuffer offset:0 atIndex:3];
+      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+      [anEncoder endEncoding];
+    }
+
+    // Step 2: Intersect primary rays with geometry
+    [myRayIntersector encodeIntersectionToCommandBuffer:theCommandBuffer
+                                       intersectionType:MPSIntersectionTypeNearest
+                                              rayBuffer:myRayBuffer
+                                        rayBufferOffset:0
+                                     intersectionBuffer:myIntersectionBuffer
+                               intersectionBufferOffset:0
+                                               rayCount:aRayCount
+                                  accelerationStructure:myAccelerationStructure];
+
+    // Step 3: Adaptive path trace with variance tracking
+    {
+      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+      [anEncoder setComputePipelineState:myAdaptivePathTracePipeline];
+      [anEncoder setTexture:theOutputTexture atIndex:0];
+      [anEncoder setBuffer:myIntersectionBuffer offset:0 atIndex:0];
+      [anEncoder setBuffer:myRayBuffer offset:0 atIndex:1];
+      [anEncoder setBytes:&aAdaptiveCameraParams length:sizeof(aAdaptiveCameraParams) atIndex:2];
+      [anEncoder setBuffer:myVertexBuffer offset:0 atIndex:3];
+      [anEncoder setBuffer:myIndexBuffer offset:0 atIndex:4];
+      [anEncoder setBuffer:myMaterialBuffer offset:0 atIndex:5];
+      [anEncoder setBuffer:myMaterialIndexBuffer offset:0 atIndex:6];
+      [anEncoder setBuffer:myLightBuffer offset:0 atIndex:7];
+      [anEncoder setBuffer:myRandomSeedBuffer offset:0 atIndex:8];
+      [anEncoder setBuffer:myPixelStatsBuffer offset:0 atIndex:9];
+      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+      [anEncoder endEncoding];
+    }
+
+    // Increment frame index for next accumulation
+    myFrameIndex++;
+    return;
   }
 
   // Phase 9: Path tracing mode - uses progressive accumulation with jittered rays
