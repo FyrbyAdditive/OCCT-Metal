@@ -240,6 +240,32 @@ public:
   //! Return maximum samples for adaptive sampling.
   uint32_t MaxSamples() const { return myMaxSamples; }
 
+  //! Set environment map texture for IBL (Phase 12).
+  //! @param theCtx Metal context
+  //! @param theEnvMap equirectangular HDR environment map texture
+#ifdef __OBJC__
+  Standard_EXPORT void SetEnvironmentMap(Metal_Context* theCtx,
+                                         id<MTLTexture> theEnvMap);
+#endif
+
+  //! Set environment map enabled (Phase 12).
+  void SetEnvironmentMapEnabled(bool theEnabled) { myEnvMapEnabled = theEnabled; }
+
+  //! Return true if environment map is enabled.
+  bool IsEnvironmentMapEnabled() const { return myEnvMapEnabled; }
+
+  //! Set environment map intensity multiplier (Phase 12). Default: 1.0
+  void SetEnvironmentMapIntensity(float theIntensity) { myEnvMapIntensity = theIntensity; }
+
+  //! Return environment map intensity.
+  float EnvironmentMapIntensity() const { return myEnvMapIntensity; }
+
+  //! Set environment map rotation in radians (Phase 12). Default: 0.0
+  void SetEnvironmentMapRotation(float theRotation) { myEnvMapRotation = theRotation; }
+
+  //! Return environment map rotation.
+  float EnvironmentMapRotation() const { return myEnvMapRotation; }
+
 private:
 
 #ifdef __OBJC__
@@ -266,6 +292,7 @@ private:
   id<MTLComputePipelineState> myAdaptiveRayGenPipeline;    //!< Phase 11: Adaptive ray generation
   id<MTLComputePipelineState> myAdaptivePathTracePipeline; //!< Phase 11: Adaptive path tracing
   id<MTLComputePipelineState> myResetAdaptiveStatsPipeline; //!< Phase 11: Reset adaptive stats
+  id<MTLComputePipelineState> myEnvMapPathTracePipeline;   //!< Phase 12: Path tracing with environment map
 
   // Buffers
   id<MTLBuffer> myVertexBuffer;
@@ -299,6 +326,10 @@ private:
   // Phase 11: Adaptive sampling buffers
   id<MTLBuffer> myPixelStatsBuffer;          //!< Phase 11: Per-pixel variance statistics
 
+  // Phase 12: Environment map
+  id<MTLTexture> myEnvironmentMap;           //!< Phase 12: HDR environment map (equirectangular)
+  id<MTLSamplerState> myEnvMapSampler;       //!< Phase 12: Environment map sampler
+
   // Shader library
   id<MTLLibrary> myShaderLibrary;
 #else
@@ -322,6 +353,7 @@ private:
   void* myAdaptiveRayGenPipeline;
   void* myAdaptivePathTracePipeline;
   void* myResetAdaptiveStatsPipeline;
+  void* myEnvMapPathTracePipeline;
   void* myVertexBuffer;
   void* myIndexBuffer;
   void* myMaterialBuffer;
@@ -346,6 +378,8 @@ private:
   void* myAccumulationBuffer;
   void* myRandomSeedBuffer;
   void* myPixelStatsBuffer;
+  void* myEnvironmentMap;
+  void* myEnvMapSampler;
   void* myShaderLibrary;
 #endif
 
@@ -361,11 +395,14 @@ private:
   bool myPathTracingEnabled;
   bool myBSDFSamplingEnabled;      //!< Phase 10: Use Cook-Torrance GGX BSDF
   bool myAdaptiveSamplingEnabled;  //!< Phase 11: Use adaptive sampling
+  bool myEnvMapEnabled;            //!< Phase 12: Use environment map for lighting
   bool myIsValid;
   uint32_t myFrameIndex;           //!< Phase 9: Current frame for accumulation
   float myVarianceThreshold;       //!< Phase 11: Variance threshold for convergence
   uint32_t myMinSamples;           //!< Phase 11: Minimum samples before checking variance
   uint32_t myMaxSamples;           //!< Phase 11: Maximum samples per pixel
+  float myEnvMapIntensity;         //!< Phase 12: Environment map intensity multiplier
+  float myEnvMapRotation;          //!< Phase 12: Environment map rotation in radians
 };
 
 DEFINE_STANDARD_HANDLE(Metal_RayTracing, Standard_Transient)

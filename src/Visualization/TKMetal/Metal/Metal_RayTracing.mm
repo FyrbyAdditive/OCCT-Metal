@@ -1692,6 +1692,196 @@ kernel void resetAdaptiveStats(
     pixelStats[idx].pad1 = 0;
 }
 
+// Phase 12: Environment map parameters
+struct EnvMapParams {
+    float intensity;
+    float rotation;
+    uint2 resolution;
+    uint frameIndex;
+    uint pad0;
+    uint pad1;
+    uint pad2;
+};
+
+// Phase 12: Convert direction to equirectangular UV coordinates
+inline float2 directionToEquirectangularUV(float3 dir) {
+    // Compute longitude (phi) from x,z
+    float phi = atan2(dir.z, dir.x);
+    float u = (phi + M_PI_F) / (2.0f * M_PI_F);
+
+    // Compute latitude (theta) from y
+    float theta = acos(clamp(dir.y, -1.0f, 1.0f));
+    float v = theta / M_PI_F;
+
+    return float2(u, v);
+}
+
+// Phase 12: Sample environment map with rotation
+inline float3 sampleEnvironmentMap(
+    texture2d<float> envMap,
+    sampler envSampler,
+    float3 direction,
+    float rotation,
+    float intensity)
+{
+    // Apply rotation around Y axis
+    float cosR = cos(rotation);
+    float sinR = sin(rotation);
+    float3 rotatedDir = float3(
+        cosR * direction.x + sinR * direction.z,
+        direction.y,
+        -sinR * direction.x + cosR * direction.z
+    );
+
+    float2 uv = directionToEquirectangularUV(rotatedDir);
+    float3 color = envMap.sample(envSampler, uv).rgb;
+    return color * intensity;
+}
+
+// Phase 12: Environment map path tracing kernel
+kernel void envMapPathTrace(
+    texture2d<float, access::write> output [[texture(0)]],
+    texture2d<float, access::read_write> accumBuffer [[texture(1)]],
+    texture2d<float> envMap [[texture(2)]],
+    sampler envSampler [[sampler(0)]],
+    device const Intersection* intersections [[buffer(0)]],
+    device const Ray* rays [[buffer(1)]],
+    constant PathTraceCameraParams& camera [[buffer(2)]],
+    constant float3* vertices [[buffer(3)]],
+    constant uint* indices [[buffer(4)]],
+    constant RaytraceMaterial* materials [[buffer(5)]],
+    constant RaytraceLight* lights [[buffer(6)]],
+    constant int* materialIndices [[buffer(7)]],
+    device uint* randomSeeds [[buffer(8)]],
+    constant EnvMapParams& envParams [[buffer(9)]],
+    uint2 tid [[thread_position_in_grid]])
+{
+    if (tid.x >= camera.resolution.x || tid.y >= camera.resolution.y) return;
+
+    uint pixelIndex = tid.y * camera.resolution.x + tid.x;
+    Intersection isect = intersections[pixelIndex];
+
+    // Initialize RNG
+    uint seed = randomSeeds[pixelIndex];
+    float3 radiance = float3(0.0f);
+    float3 throughput = float3(1.0f);
+
+    // Current ray state
+    Ray currentRay = rays[pixelIndex];
+    Intersection currentIsect = isect;
+
+    // Path tracing loop
+    for (int bounce = 0; bounce < camera.maxBounces; bounce++) {
+        if (currentIsect.distance < 0.0f) {
+            // Miss - sample environment map
+            float3 dir = normalize(float3(currentRay.direction));
+            float3 envColor = sampleEnvironmentMap(envMap, envSampler, dir,
+                                                   envParams.rotation, envParams.intensity);
+            radiance += throughput * envColor;
+            break;
+        }
+
+        // Hit processing
+        uint triIndex = uint(currentIsect.primitiveIndex);
+        int matIdx = materialIndices[triIndex];
+        RaytraceMaterial mat = materials[matIdx];
+
+        // Get triangle vertices
+        uint i0 = indices[triIndex * 3 + 0];
+        uint i1 = indices[triIndex * 3 + 1];
+        uint i2 = indices[triIndex * 3 + 2];
+
+        float3 v0 = vertices[i0];
+        float3 v1 = vertices[i1];
+        float3 v2 = vertices[i2];
+
+        // Compute normal
+        float3 edge1 = v1 - v0;
+        float3 edge2 = v2 - v0;
+        float3 geometricNormal = normalize(cross(edge1, edge2));
+
+        // Hit point
+        float3 hitPoint = float3(currentRay.origin) + currentIsect.distance * float3(currentRay.direction);
+
+        // Flip normal if backface
+        float3 rayDir = normalize(float3(currentRay.direction));
+        float3 normal = dot(geometricNormal, rayDir) < 0.0f ? geometricNormal : -geometricNormal;
+
+        // Add emission
+        radiance += throughput * mat.emission.rgb;
+
+        // Get material properties
+        float3 albedo = mat.diffuse.rgb;
+        float roughness = max(mat.specular.w / 128.0f, 0.04f);
+        float metallic = mat.reflection.w;
+
+        // Direct lighting: sample environment map
+        // Generate random direction for IBL sampling
+        float u1 = pcgFloat(seed);
+        float u2 = pcgFloat(seed);
+
+        // Cosine-weighted hemisphere sampling for diffuse IBL
+        float3 sampleDir = cosineSampleHemisphere(u1, u2);
+
+        // Transform to world space
+        float3 tangent, bitangent;
+        if (abs(normal.x) > 0.9f) {
+            tangent = normalize(cross(float3(0, 1, 0), normal));
+        } else {
+            tangent = normalize(cross(float3(1, 0, 0), normal));
+        }
+        bitangent = cross(normal, tangent);
+
+        float3 worldSampleDir = tangent * sampleDir.x + bitangent * sampleDir.y + normal * sampleDir.z;
+
+        // Sample environment for direct lighting estimate
+        float3 envSample = sampleEnvironmentMap(envMap, envSampler, worldSampleDir,
+                                                envParams.rotation, envParams.intensity);
+
+        // Lambertian BRDF contribution
+        float NdotL = max(dot(normal, worldSampleDir), 0.0f);
+        float3 diffuseContrib = albedo * (1.0f - metallic) * envSample;
+
+        // Add small fraction of direct lighting
+        radiance += throughput * diffuseContrib * 0.3f;
+
+        // Continue path: Generate next ray direction using cosine-weighted sampling
+        u1 = pcgFloat(seed);
+        u2 = pcgFloat(seed);
+        float3 newDir = cosineSampleHemisphere(u1, u2);
+        float3 worldNewDir = tangent * newDir.x + bitangent * newDir.y + normal * newDir.z;
+
+        // Update throughput
+        throughput *= albedo;
+
+        // Russian roulette after bounce 2
+        if (bounce > 2) {
+            float p = max(max(throughput.r, throughput.g), throughput.b);
+            if (pcgFloat(seed) > p) break;
+            throughput /= p;
+        }
+
+        // Setup next ray (we don't trace it here, this is a single-bounce approximation)
+        // For full path tracing, we'd need to intersect again
+        break; // Single bounce for now - full path tracing requires ray recursion
+    }
+
+    // Store updated seed
+    randomSeeds[pixelIndex] = seed;
+
+    // Progressive accumulation
+    float4 prevAccum = accumBuffer.read(tid);
+    float sampleWeight = 1.0f / float(envParams.frameIndex + 1);
+
+    // Accumulate in linear space
+    float3 newAccum = mix(prevAccum.rgb, radiance, sampleWeight);
+    accumBuffer.write(float4(newAccum, 1.0f), tid);
+
+    // Output with gamma correction
+    float3 displayColor = pow(newAccum, 1.0f / 2.2f);
+    output.write(float4(saturate(displayColor), 1.0f), tid);
+}
+
 // Phase 8: Full shading with textures, reflections, and refractions
 kernel void shadeWithTextures(
   texture2d<float, access::write> output [[texture(0)]],
@@ -1901,9 +2091,12 @@ Metal_RayTracing::Metal_RayTracing()
   myAdaptiveRayGenPipeline(nil),
   myAdaptivePathTracePipeline(nil),
   myResetAdaptiveStatsPipeline(nil),
+  myEnvMapPathTracePipeline(nil),
   myAccumulationBuffer(nil),
   myRandomSeedBuffer(nil),
   myPixelStatsBuffer(nil),
+  myEnvironmentMap(nil),
+  myEnvMapSampler(nil),
   myVertexCount(0),
   myTriangleCount(0),
   myMaterialCount(0),
@@ -1916,11 +2109,14 @@ Metal_RayTracing::Metal_RayTracing()
   myPathTracingEnabled(false),
   myBSDFSamplingEnabled(false),
   myAdaptiveSamplingEnabled(false),
+  myEnvMapEnabled(false),
   myIsValid(false),
   myFrameIndex(0),
   myVarianceThreshold(0.01f),
   myMinSamples(16),
-  myMaxSamples(1024)
+  myMaxSamples(1024),
+  myEnvMapIntensity(1.0f),
+  myEnvMapRotation(0.0f)
 {
 }
 
@@ -2222,6 +2418,27 @@ bool Metal_RayTracing::Init(Metal_Context* theCtx)
     }
   }
 
+  // Phase 12: Create environment map path trace pipeline
+  id<MTLFunction> aEnvMapPathTraceFunc = [myShaderLibrary newFunctionWithName:@"envMapPathTrace"];
+  if (aEnvMapPathTraceFunc != nil)
+  {
+    myEnvMapPathTracePipeline = [aDevice newComputePipelineStateWithFunction:aEnvMapPathTraceFunc error:&anError];
+    if (myEnvMapPathTracePipeline == nil)
+    {
+      Message::SendFail() << "Metal_RayTracing: envMapPathTrace pipeline failed - "
+                          << [[anError localizedDescription] UTF8String];
+      return false;
+    }
+  }
+
+  // Phase 12: Create environment map sampler
+  MTLSamplerDescriptor* anEnvSamplerDesc = [[MTLSamplerDescriptor alloc] init];
+  anEnvSamplerDesc.minFilter = MTLSamplerMinMagFilterLinear;
+  anEnvSamplerDesc.magFilter = MTLSamplerMinMagFilterLinear;
+  anEnvSamplerDesc.sAddressMode = MTLSamplerAddressModeRepeat;
+  anEnvSamplerDesc.tAddressMode = MTLSamplerAddressModeClampToEdge;
+  myEnvMapSampler = [aDevice newSamplerStateWithDescriptor:anEnvSamplerDesc];
+
   // Create ray intersector
   myRayIntersector = [[MPSRayIntersector alloc] initWithDevice:aDevice];
   myRayIntersector.rayDataType = MPSRayDataTypeOriginMinDistanceDirectionMaxDistance;
@@ -2260,6 +2477,7 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myAdaptiveRayGenPipeline = nil;
   myAdaptivePathTracePipeline = nil;
   myResetAdaptiveStatsPipeline = nil;
+  myEnvMapPathTracePipeline = nil;
   myVertexBuffer = nil;
   myIndexBuffer = nil;
   myMaterialBuffer = nil;
@@ -2284,6 +2502,8 @@ void Metal_RayTracing::Release(Metal_Context* theCtx)
   myAccumulationBuffer = nil;
   myRandomSeedBuffer = nil;
   myPixelStatsBuffer = nil;
+  myEnvironmentMap = nil;
+  myEnvMapSampler = nil;
   myShaderLibrary = nil;
 
   myVertexCount = 0;
@@ -2498,6 +2718,25 @@ void Metal_RayTracing::SetNormalTextures(Metal_Context* theCtx,
   aDesc.storageMode = MTLStorageModePrivate;
 
   myNormalTextureArray = [aDevice newTextureWithDescriptor:aDesc];
+}
+
+// =======================================================================
+// function : SetEnvironmentMap
+// purpose  : Set environment map texture for IBL (Phase 12)
+// =======================================================================
+void Metal_RayTracing::SetEnvironmentMap(Metal_Context* theCtx,
+                                         id<MTLTexture> theEnvMap)
+{
+  if (!myIsValid || theCtx == nullptr)
+  {
+    myEnvironmentMap = nil;
+    return;
+  }
+
+  myEnvironmentMap = theEnvMap;
+
+  // Reset accumulation when environment map changes
+  myFrameIndex = 0;
 }
 
 // =======================================================================
@@ -2731,6 +2970,139 @@ void Metal_RayTracing::Trace(Metal_Context* theCtx,
       [anEncoder setBuffer:myLightBuffer offset:0 atIndex:7];
       [anEncoder setBuffer:myRandomSeedBuffer offset:0 atIndex:8];
       [anEncoder setBuffer:myPixelStatsBuffer offset:0 atIndex:9];
+      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+      [anEncoder endEncoding];
+    }
+
+    // Increment frame index for next accumulation
+    myFrameIndex++;
+    return;
+  }
+
+  // Phase 12: Environment map path tracing mode
+  bool aUseEnvMap = myEnvMapEnabled && myPathTracingEnabled && myEnvironmentMap != nil
+                 && myEnvMapPathTracePipeline != nil && myPathTraceRayGenPipeline != nil;
+  if (aUseEnvMap)
+  {
+    // Allocate random seed buffer for per-pixel RNG state
+    size_t aSeedBufferSize = aRayCount * sizeof(uint32_t);
+    if (myRandomSeedBuffer == nil || [myRandomSeedBuffer length] < aSeedBufferSize)
+    {
+      myRandomSeedBuffer = [aDevice newBufferWithLength:aSeedBufferSize
+                                                options:MTLResourceStorageModePrivate];
+    }
+
+    // Allocate accumulation buffer
+    if (myAccumulationBuffer == nil ||
+        [myAccumulationBuffer width] != aWidth ||
+        [myAccumulationBuffer height] != aHeight)
+    {
+      MTLTextureDescriptor* anAccumDesc = [[MTLTextureDescriptor alloc] init];
+      anAccumDesc.textureType = MTLTextureType2D;
+      anAccumDesc.pixelFormat = MTLPixelFormatRGBA32Float;
+      anAccumDesc.width = aWidth;
+      anAccumDesc.height = aHeight;
+      anAccumDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+      anAccumDesc.storageMode = MTLStorageModePrivate;
+      myAccumulationBuffer = [aDevice newTextureWithDescriptor:anAccumDesc];
+    }
+
+    // Path trace camera parameters
+    struct PathTraceCameraParams {
+      simd_float3 origin;
+      simd_float3 forward;
+      simd_float3 right;
+      simd_float3 up;
+      float fov;
+      simd_float2 resolution;
+      int maxBounces;
+      int shadowsEnabled;
+      int reflectionsEnabled;
+      int lightCount;
+      uint32_t frameIndex;
+    } aPTCameraParams;
+
+    // Compute camera basis vectors
+    simd_float3 aOrigin = simd_make_float3(theCameraOrigin.x(), theCameraOrigin.y(), theCameraOrigin.z());
+    simd_float3 aLookAt = simd_make_float3(theCameraLookAt.x(), theCameraLookAt.y(), theCameraLookAt.z());
+    simd_float3 aUp = simd_make_float3(theCameraUp.x(), theCameraUp.y(), theCameraUp.z());
+    simd_float3 aForward = simd_normalize(aLookAt - aOrigin);
+    simd_float3 aRight = simd_normalize(simd_cross(aForward, aUp));
+    simd_float3 aCamUp = simd_cross(aRight, aForward);
+
+    aPTCameraParams.origin = aOrigin;
+    aPTCameraParams.forward = aForward;
+    aPTCameraParams.right = aRight;
+    aPTCameraParams.up = aCamUp;
+    aPTCameraParams.fov = theFov;
+    aPTCameraParams.resolution = simd_make_float2(static_cast<float>(aWidth), static_cast<float>(aHeight));
+    aPTCameraParams.maxBounces = myMaxBounces;
+    aPTCameraParams.shadowsEnabled = myShadowsEnabled ? 1 : 0;
+    aPTCameraParams.reflectionsEnabled = myReflectionsEnabled ? 1 : 0;
+    aPTCameraParams.lightCount = myLightCount;
+    aPTCameraParams.frameIndex = myFrameIndex;
+
+    // Environment map parameters
+    struct EnvMapParams {
+      float intensity;
+      float rotation;
+      simd_uint2 resolution;
+      uint32_t frameIndex;
+      uint32_t pad0;
+      uint32_t pad1;
+      uint32_t pad2;
+    } anEnvParams;
+
+    anEnvParams.intensity = myEnvMapIntensity;
+    anEnvParams.rotation = myEnvMapRotation;
+    anEnvParams.resolution = simd_make_uint2(static_cast<uint32_t>(aWidth), static_cast<uint32_t>(aHeight));
+    anEnvParams.frameIndex = myFrameIndex;
+    anEnvParams.pad0 = 0;
+    anEnvParams.pad1 = 0;
+    anEnvParams.pad2 = 0;
+
+    MTLSize aThreadgroupSize = MTLSizeMake(8, 8, 1);
+    MTLSize aThreadgroups = MTLSizeMake((aWidth + 7) / 8, (aHeight + 7) / 8, 1);
+
+    // Step 1: Generate jittered rays for this frame
+    {
+      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+      [anEncoder setComputePipelineState:myPathTraceRayGenPipeline];
+      [anEncoder setBuffer:myRayBuffer offset:0 atIndex:0];
+      [anEncoder setBytes:&aPTCameraParams length:sizeof(aPTCameraParams) atIndex:1];
+      [anEncoder setBuffer:myRandomSeedBuffer offset:0 atIndex:2];
+      [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
+      [anEncoder endEncoding];
+    }
+
+    // Step 2: Intersect primary rays with geometry
+    [myRayIntersector encodeIntersectionToCommandBuffer:theCommandBuffer
+                                       intersectionType:MPSIntersectionTypeNearest
+                                              rayBuffer:myRayBuffer
+                                        rayBufferOffset:0
+                                     intersectionBuffer:myIntersectionBuffer
+                               intersectionBufferOffset:0
+                                               rayCount:aRayCount
+                                  accelerationStructure:myAccelerationStructure];
+
+    // Step 3: Environment map path trace
+    {
+      id<MTLComputeCommandEncoder> anEncoder = [theCommandBuffer computeCommandEncoder];
+      [anEncoder setComputePipelineState:myEnvMapPathTracePipeline];
+      [anEncoder setTexture:theOutputTexture atIndex:0];
+      [anEncoder setTexture:myAccumulationBuffer atIndex:1];
+      [anEncoder setTexture:myEnvironmentMap atIndex:2];
+      [anEncoder setSamplerState:myEnvMapSampler atIndex:0];
+      [anEncoder setBuffer:myIntersectionBuffer offset:0 atIndex:0];
+      [anEncoder setBuffer:myRayBuffer offset:0 atIndex:1];
+      [anEncoder setBytes:&aPTCameraParams length:sizeof(aPTCameraParams) atIndex:2];
+      [anEncoder setBuffer:myVertexBuffer offset:0 atIndex:3];
+      [anEncoder setBuffer:myIndexBuffer offset:0 atIndex:4];
+      [anEncoder setBuffer:myMaterialBuffer offset:0 atIndex:5];
+      [anEncoder setBuffer:myLightBuffer offset:0 atIndex:6];
+      [anEncoder setBuffer:myMaterialIndexBuffer offset:0 atIndex:7];
+      [anEncoder setBuffer:myRandomSeedBuffer offset:0 atIndex:8];
+      [anEncoder setBytes:&anEnvParams length:sizeof(anEnvParams) atIndex:9];
       [anEncoder dispatchThreadgroups:aThreadgroups threadsPerThreadgroup:aThreadgroupSize];
       [anEncoder endEncoding];
     }
